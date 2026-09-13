@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "title": "Task-fit pilot: all twelve original slots",
+  "sourceRevision": "351c05a6220eb3c487ceb0fccb80c310e7221187",
+  "sourceState": "Frozen benchmark source; later website, prompt, and verifier corrections excluded",
+  "executedArtifact": ".build/task-fit-351c05a/main.mjs",
+  "executedArtifactSha256": "69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42",
+  "selectionReason": "Three predeclared tasks, two repetitions per arm, twelve planned slots; all outcomes retained including two invalid independent-task team setups. No outcome-based reruns.",
+  "includeReservationInventory": true,
+  "campaignIds": [
+    "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+    "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+    "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db"
+  ]
+}

@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { resolveOptions } from '../src/options.js';
+test('CLI values and project fallback', () => {
+  assert.deepEqual(resolveOptions({ color: true, retries: 3 }, { retries: 2 }, { color: false }), { color: false, retries: 2 });
+});

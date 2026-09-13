@@ -1,0 +1,10 @@
+export function createJob(task, signal) {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { task, signal, promise, resolve, reject, state: 'queued' };
+}
+export function abortError() {
+  const error = new Error('Job cancelled');
+  error.name = 'AbortError';
+  return error;
+}

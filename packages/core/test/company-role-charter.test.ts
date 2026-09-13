@@ -118,6 +118,29 @@ describe("company role charters", () => {
     expect(panelPrompt).toContain("Authority boundary (mandatory):");
   });
 
+  it("omits only an exact duplicate purpose when the complete goal remains visible", () => {
+    const target = role({ id: "worker", kind: "worker", capabilities: ["research"], profile: "explore_v1" });
+    const base = blueprintWith(target);
+    const purpose = "Repair the queue 🧭.\nPreserve FIFO.";
+    const blueprint = { ...base, project: { ...base.project, purpose } };
+    const input = { blueprint, assignment: assignment(target.id), objective: purpose, knowledgeContext: "", dependencyHandoffs: ["Prior bounded evidence."] };
+    const prompt = renderCompanyAssignmentPrompt(input);
+    expect(prompt.split(purpose)).toHaveLength(2);
+    expect(prompt).not.toContain("Project purpose:");
+    expect(prompt).toContain(`Company goal: ${purpose}`);
+    expect(prompt).toContain("Prior bounded evidence.");
+    expect(prompt).toContain("Never widen child authority");
+    expect(prompt).toContain("Required evidence:\n- Cite the inspected source.");
+    expect(prompt).toContain(compileCompanyRoleCharter(blueprint, target.id).authorityBoundary);
+    const distinct = renderCompanyAssignmentPrompt({ ...input, objective: "A narrower queue change." });
+    expect(distinct).toContain(`Project purpose: ${purpose}`);
+    expect(distinct).toContain("Company goal: A narrower queue change.");
+    const truncated = renderCompanyAssignmentPrompt({ ...input, knowledgeContext: "old context ".repeat(3000), maximumBytes: 2048 });
+    expect(truncated).toContain(`Project purpose: ${purpose}`);
+    expect(truncated).toContain("[company context truncated by Recurs]");
+    expect(Buffer.byteLength(truncated)).toBeLessThanOrEqual(2048);
+  });
+
   it("labels inactive capacity and omits it from executable delegation targets", () => {
     const blueprint = companyBlueprintV2Fixture();
     const root = blueprint.roles[0]!;

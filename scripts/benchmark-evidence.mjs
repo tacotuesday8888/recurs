@@ -9,6 +9,8 @@ import {
   parseCompanyBenchmarkCampaign,
   parseCompanyBenchmarkTrial,
   parseCompanyBenchmarkSlotSettlement,
+  parseCompanyBenchmarkSlotReservation,
+  validateCompanyBenchmarkSlotSettlement,
 } from "../packages/contracts/dist/index.js";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -35,6 +37,16 @@ export function validateEvidence(evidence) {
     ids.add(campaign.id);
     const arms = [campaign.baseline, ...campaign.companyArms];
     const slots = new Map(campaign.armOrder.map((slot) => [slot.slotId, slot]));
+    const reservations = entry.reservations === undefined ? null : new Map();
+    if (evidence.selection.includeReservationInventory === true) assert(reservations !== null, "Missing reservation inventory");
+    if (reservations !== null) {
+      for (const raw of entry.reservations) {
+        const reservation = parseCompanyBenchmarkSlotReservation(raw);
+        assert(reservation.campaignId === campaign.id && slots.has(reservation.slotId), "Reservation slot mismatch");
+        assert(!reservations.has(reservation.slotId), "Duplicate reservation slot");
+        reservations.set(reservation.slotId, reservation);
+      }
+    }
     const trials = new Map();
     for (const raw of entry.trials) {
       const trial = parseCompanyBenchmarkTrial(raw);
@@ -56,6 +68,11 @@ export function validateEvidence(evidence) {
       const settlement = parseCompanyBenchmarkSlotSettlement(raw);
       assert(settlement.campaignId === campaign.id && slots.has(settlement.slotId), "Settlement slot mismatch");
       assert(!settled.has(settlement.slotId), "Duplicate settlement slot");
+      if (reservations !== null) {
+        const reservation = reservations.get(settlement.slotId);
+        assert(reservation, "Settlement without reservation");
+        validateCompanyBenchmarkSlotSettlement(settlement, reservation);
+      }
       settled.add(settlement.slotId);
       const trial = trials.get(settlement.slotId);
       if (settlement.status === "completed") {
@@ -66,7 +83,7 @@ export function validateEvidence(evidence) {
       } else assert(trial === undefined, "Failed settlement has a trial");
     }
     assert([...trials.keys()].every((slot) => settled.has(slot)), "Unsettled trial");
-    assert(settled.size === slots.size, "Missing settlement: retain incomplete evidence explicitly");
+    if (reservations === null) assert(settled.size === slots.size, "Missing settlement: retain incomplete evidence explicitly");
   }
   return evidence;
 }
@@ -84,15 +101,19 @@ const totalWhenComplete = (trials, coverage, field) => trials.length > 0 &&
 
 export function summarizeEvidence(evidence) {
   validateEvidence(evidence);
-  return evidence.campaigns.map(({ campaign, trials, settlements }) => ({
+  return evidence.campaigns.map(({ campaign, trials, settlements, reservations }) => ({
     id: campaign.id,
     date: campaign.createdAt.slice(0, 10),
     scenario: campaign.scenario.id,
+    scenarioVersion: campaign.scenario.version,
     harnessRevision: campaign.harnessRevision,
+    launchProtocolRevision: campaign.launchProtocolRevision,
     repetitions: campaign.repetitions,
     plannedSlots: campaign.armOrder.length,
     recordedTrials: trials.length,
     settledSlots: settlements.length,
+    unattemptedSlots: reservations === undefined ? null : campaign.armOrder.filter((slot) => !reservations.some((reservation) => reservation.slotId === slot.slotId)).length,
+    unsettledReservations: reservations === undefined ? null : reservations.filter((reservation) => !settlements.some((settlement) => settlement.reservationId === reservation.id)).length,
     complete: trials.length === campaign.armOrder.length,
     arms: [campaign.baseline, ...campaign.companyArms].map((arm) => {
       const selected = trials.filter((trial) => trial.armId === arm.id);
@@ -127,6 +148,7 @@ export async function exportEvidence(dataDirectory, selection) {
   const [campaigns, trials, settlements] = await Promise.all([
     readRecords("campaigns"), readRecords("trials"), readRecords("settlements"),
   ]);
+  const reservations = selection.includeReservationInventory === true ? await readRecords("reservations") : null;
   const entries = selection.campaignIds.map((id) => {
     const campaign = campaigns.find((record) => record.id === id);
     assert(campaign, "Selected campaign unavailable");
@@ -134,6 +156,7 @@ export async function exportEvidence(dataDirectory, selection) {
       campaign: parseCompanyBenchmarkCampaign(campaign),
       trials: trials.filter((trial) => trial.campaignId === id).map(parseCompanyBenchmarkTrial).sort((a, b) => a.slotId.localeCompare(b.slotId, "en")),
       settlements: settlements.filter((item) => item.campaignId === id).map(parseCompanyBenchmarkSlotSettlement).sort((a, b) => a.slotId.localeCompare(b.slotId, "en")),
+      ...(reservations === null ? {} : { reservations: reservations.filter((item) => item.campaignId === id).map(parseCompanyBenchmarkSlotReservation).sort((a, b) => a.slotId.localeCompare(b.slotId, "en")) }),
     };
     return { sourceSha256: digest(records), ...publicRecord(records) };
   });

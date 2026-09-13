@@ -1,0 +1,3027 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "selection": {
+    "version": 1,
+    "kind": "model_backed",
+    "title": "Task-fit pilot: all twelve original slots",
+    "sourceRevision": "351c05a6220eb3c487ceb0fccb80c310e7221187",
+    "sourceState": "Frozen benchmark source; later website, prompt, and verifier corrections excluded",
+    "executedArtifact": ".build/task-fit-351c05a/main.mjs",
+    "executedArtifactSha256": "69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42",
+    "selectionReason": "Three predeclared tasks, two repetitions per arm, twelve planned slots; all outcomes retained including two invalid independent-task team setups. No outcome-based reruns.",
+    "includeReservationInventory": true,
+    "campaignIds": [
+      "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+      "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+      "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db"
+    ]
+  },
+  "redactions": [
+    "Local connection IDs replaced with stable SHA-256 aliases"
+  ],
+  "campaigns": [
+    {
+      "sourceSha256": "eb6296d480f8917704e0f59e6b27ffa53b42a378193aee1928248940acff5b26",
+      "campaign": {
+        "id": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+        "version": 1,
+        "createdAt": "2026-09-13T13:54:43.843Z",
+        "scenario": {
+          "id": "options_precedence",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b",
+          "verifierId": "options_precedence_hidden_v1",
+          "objectiveRevision": "options_precedence_objective_v1"
+        },
+        "harnessRevision": "recurs_0_1_0-alpha_11",
+        "launchProtocolRevision": "company-benchmark-parent-only-v2",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 64,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-options_precedence-v1-blueprint",
+          "revision": 1,
+          "sha256": "1a48ed8bf1589a05566ca0b896370eea2233d1086a3196802845d455113cc425"
+        },
+        "baseline": {
+          "id": "single-strong",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_single-strong",
+            "armId": "single-strong",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_single-strong",
+            "armId": "single-strong",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_f6ab8978fd16c8accb69471f50910126",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "options_precedence",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b",
+            "verifierId": "options_precedence_hidden_v1",
+            "objectiveRevision": "options_precedence_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-options_precedence-v1-blueprint",
+            "revision": 1,
+            "sha256": "1a48ed8bf1589a05566ca0b896370eea2233d1086a3196802845d455113cc425"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T13:56:05.426Z",
+          "completedAt": "2026-09-13T13:58:17.517Z",
+          "wallClockMs": 132091,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 131016,
+              "attemptLatenciesMs": [
+                131016
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 75844,
+                "outputTokens": 844,
+                "cachedInputTokens": 59136,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 203,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 17,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 35523,
+              "attemptLatenciesMs": [
+                35523
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 100666,
+                "outputTokens": 893,
+                "cachedInputTokens": 83200,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 275,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 5,
+              "changedFiles": [
+                "src/options.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 41271,
+              "attemptLatenciesMs": [
+                41271
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 60042,
+                "outputTokens": 1467,
+                "cachedInputTokens": 46848,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1053,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 10,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 236552,
+            "outputTokens": 3204,
+            "cachedInputTokens": 189184,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1531,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_values",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_ownership",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_immutability",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 14
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 32,
+            "finalItems": 17
+          },
+          "changedFiles": [
+            "src/options.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_8d3d2ab59c76c7474c9114ea032e2887",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "options_precedence",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b",
+            "verifierId": "options_precedence_hidden_v1",
+            "objectiveRevision": "options_precedence_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T13:54:44.007Z",
+          "completedAt": "2026-09-13T13:56:05.349Z",
+          "wallClockMs": 81342,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 80464,
+              "attemptLatenciesMs": [
+                80464
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 139171,
+                "outputTokens": 3069,
+                "cachedInputTokens": 119296,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1178,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/options.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 139171,
+            "outputTokens": 3069,
+            "cachedInputTokens": 119296,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1178,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_values",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_ownership",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_immutability",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 1,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/options.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_76066d8237b9328d9f572393e6bb244e",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "options_precedence",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b",
+            "verifierId": "options_precedence_hidden_v1",
+            "objectiveRevision": "options_precedence_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-options_precedence-v1-blueprint",
+            "revision": 1,
+            "sha256": "1a48ed8bf1589a05566ca0b896370eea2233d1086a3196802845d455113cc425"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T13:58:17.744Z",
+          "completedAt": "2026-09-13T14:00:46.243Z",
+          "wallClockMs": 148499,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 147633,
+              "attemptLatenciesMs": [
+                147633
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 76412,
+                "outputTokens": 978,
+                "cachedInputTokens": 60928,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 247,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 13,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 45904,
+              "attemptLatenciesMs": [
+                45904
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 103140,
+                "outputTokens": 1556,
+                "cachedInputTokens": 95232,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 330,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 4,
+              "changedFiles": [
+                "src/options.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 49360,
+              "attemptLatenciesMs": [
+                49360
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 45793,
+                "outputTokens": 1351,
+                "cachedInputTokens": 20992,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 990,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 7,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 225345,
+            "outputTokens": 3885,
+            "cachedInputTokens": 177152,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1567,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_values",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_ownership",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_immutability",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 11
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 24,
+            "finalItems": 13
+          },
+          "changedFiles": [
+            "src/options.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_bce30d561b732536e0c51922723b25d4",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 2,
+          "scenario": {
+            "id": "options_precedence",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b",
+            "verifierId": "options_precedence_hidden_v1",
+            "objectiveRevision": "options_precedence_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:00:46.316Z",
+          "completedAt": "2026-09-13T14:03:13.041Z",
+          "wallClockMs": 146725,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 145881,
+              "attemptLatenciesMs": [
+                145881
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 269814,
+                "outputTokens": 5180,
+                "cachedInputTokens": 226816,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1677,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/options.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 269814,
+            "outputTokens": 5180,
+            "cachedInputTokens": 226816,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1677,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_values",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_ownership",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_options_immutability",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 2,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/options.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_520daf24e88a1fc31dcc6d9383a04a4b",
+          "version": 1,
+          "reservationId": "benchmark_reservation_f6ab8978fd16c8accb69471f50910126",
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T13:58:17.572Z",
+          "trialId": "benchmark_trial_f6ab8978fd16c8accb69471f50910126",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.5625,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_957ba3f99989b02b6366cc4c7cdd64cd",
+          "version": 1,
+          "reservationId": "benchmark_reservation_8d3d2ab59c76c7474c9114ea032e2887",
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T13:56:05.384Z",
+          "trialId": "benchmark_trial_8d3d2ab59c76c7474c9114ea032e2887",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_2ba3a7d84e235d3dedd4255a412228b0",
+          "version": 1,
+          "reservationId": "benchmark_reservation_76066d8237b9328d9f572393e6bb244e",
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:00:46.279Z",
+          "trialId": "benchmark_trial_76066d8237b9328d9f572393e6bb244e",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.5625,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_2771b3d68767ee3988a012714515d89d",
+          "version": 1,
+          "reservationId": "benchmark_reservation_bce30d561b732536e0c51922723b25d4",
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:03:13.118Z",
+          "trialId": "benchmark_trial_bce30d561b732536e0c51922723b25d4",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_f6ab8978fd16c8accb69471f50910126",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T13:56:05.408Z",
+          "requestAllowance": 21,
+          "reportedCostAllowanceUsd": 3.9375
+        },
+        {
+          "id": "benchmark_reservation_8d3d2ab59c76c7474c9114ea032e2887",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_1_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T13:54:43.987Z",
+          "requestAllowance": 16,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_76066d8237b9328d9f572393e6bb244e",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T13:58:17.693Z",
+          "requestAllowance": 30,
+          "reportedCostAllowanceUsd": 5.625
+        },
+        {
+          "id": "benchmark_reservation_bce30d561b732536e0c51922723b25d4",
+          "version": 1,
+          "campaignId": "company-proof-da6f4f6e-15fc-4e5a-b6bb-8b6f40315179",
+          "slotId": "slot_2_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:00:46.299Z",
+          "requestAllowance": 57,
+          "reportedCostAllowanceUsd": 10.6875
+        }
+      ]
+    },
+    {
+      "sourceSha256": "af550fa1f6de8c912cf12ec2ab297e3c14a6a66d7faa1145db64e70700a21708",
+      "campaign": {
+        "id": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+        "version": 1,
+        "createdAt": "2026-09-13T14:03:26.701Z",
+        "scenario": {
+          "id": "queue_cancellation",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+          "verifierId": "queue_cancellation_hidden_v1",
+          "objectiveRevision": "queue_cancellation_objective_v1"
+        },
+        "harnessRevision": "recurs_0_1_0-alpha_11",
+        "launchProtocolRevision": "company-benchmark-parent-only-v2",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 64,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-queue_cancellation-v1-blueprint",
+          "revision": 1,
+          "sha256": "c498f949f81fbd366a31127393b1fc00752a38b03c67193d68909c2d10404589"
+        },
+        "baseline": {
+          "id": "single-strong",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_single-strong",
+            "armId": "single-strong",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_single-strong",
+            "armId": "single-strong",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_67edec7101f41259c10224e329a82b6c",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "queue_cancellation",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+            "verifierId": "queue_cancellation_hidden_v1",
+            "objectiveRevision": "queue_cancellation_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-queue_cancellation-v1-blueprint",
+            "revision": 1,
+            "sha256": "c498f949f81fbd366a31127393b1fc00752a38b03c67193d68909c2d10404589"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "failed",
+          "startedAt": "2026-09-13T14:05:13.583Z",
+          "completedAt": "2026-09-13T14:10:18.416Z",
+          "wallClockMs": 304833,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 304034,
+              "attemptLatenciesMs": [
+                304034
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 145056,
+                "outputTokens": 1180,
+                "cachedInputTokens": 99328,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 174,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 100213,
+              "attemptLatenciesMs": [
+                100213
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 193341,
+                "outputTokens": 3205,
+                "cachedInputTokens": 151808,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1106,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 10,
+              "changedFiles": [
+                "src/job.js",
+                "src/queue.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 2,
+              "completedAttempts": 2,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 161604,
+              "attemptLatenciesMs": [
+                52093,
+                47737
+              ],
+              "usage": {
+                "requestsUsed": 2,
+                "usageReports": 2,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 92207,
+                "outputTokens": 4311,
+                "cachedInputTokens": 60160,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 3024,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 26,
+              "changedFiles": []
+            },
+            {
+              "role": "repair",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 57792,
+              "attemptLatenciesMs": [
+                57792
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 103372,
+                "outputTokens": 2204,
+                "cachedInputTokens": 81408,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1292,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 9,
+              "changedFiles": [
+                "src/queue.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 5,
+            "usageReports": 5,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 533976,
+            "outputTokens": 10900,
+            "cachedInputTokens": 392704,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 5596,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "failed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_failures",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_queue_cancellation",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_queue_running",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 2,
+            "approved": 0,
+            "changesRequested": 2,
+            "unverified": 0,
+            "finalVerdict": "changes_requested",
+            "findings": 2,
+            "affectedPaths": [
+              "*",
+              "src/queue.js"
+            ],
+            "evidenceItems": 30
+          },
+          "repairRounds": 1,
+          "interventions": {
+            "externalConfirmationRequests": 4,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 45,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/job.js",
+            "src/queue.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": [
+              "src/queue.js"
+            ]
+          },
+          "failures": [
+            {
+              "stage": "execution",
+              "code": "company_goal_failed",
+              "scope": "roster_execution"
+            },
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        },
+        {
+          "id": "benchmark_trial_360e714f42bfece0eae66c361da1e35a",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "queue_cancellation",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+            "verifierId": "queue_cancellation_hidden_v1",
+            "objectiveRevision": "queue_cancellation_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:03:26.957Z",
+          "completedAt": "2026-09-13T14:05:13.426Z",
+          "wallClockMs": 106469,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 105436,
+              "attemptLatenciesMs": [
+                105436
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 154601,
+                "outputTokens": 4091,
+                "cachedInputTokens": 132608,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1581,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/job.js",
+                "src/queue.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 154601,
+            "outputTokens": 4091,
+            "cachedInputTokens": 132608,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1581,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_failures",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_cancellation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_running",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 2,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/job.js",
+            "src/queue.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_f120ac1402ea99fa5f7f9f311529cf08",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "queue_cancellation",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+            "verifierId": "queue_cancellation_hidden_v1",
+            "objectiveRevision": "queue_cancellation_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-queue_cancellation-v1-blueprint",
+            "revision": 1,
+            "sha256": "c498f949f81fbd366a31127393b1fc00752a38b03c67193d68909c2d10404589"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:10:18.491Z",
+          "completedAt": "2026-09-13T14:12:54.636Z",
+          "wallClockMs": 156145,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 155256,
+              "attemptLatenciesMs": [
+                155256
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 77859,
+                "outputTokens": 1043,
+                "cachedInputTokens": 60160,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 260,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 20,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 72484,
+              "attemptLatenciesMs": [
+                72484
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 119621,
+                "outputTokens": 3050,
+                "cachedInputTokens": 101376,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1380,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 14,
+              "changedFiles": [
+                "src/job.js",
+                "src/queue.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 32967,
+              "attemptLatenciesMs": [
+                32967
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 37185,
+                "outputTokens": 1085,
+                "cachedInputTokens": 0,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 645,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 10,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 234665,
+            "outputTokens": 5178,
+            "cachedInputTokens": 161536,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 2285,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_failures",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_cancellation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_running",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 15
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 44,
+            "finalItems": 20
+          },
+          "changedFiles": [
+            "src/job.js",
+            "src/queue.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": [
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        },
+        {
+          "id": "benchmark_trial_4e6ef1409364865a53af5e349fd97b5c",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 2,
+          "scenario": {
+            "id": "queue_cancellation",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+            "verifierId": "queue_cancellation_hidden_v1",
+            "objectiveRevision": "queue_cancellation_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:12:54.708Z",
+          "completedAt": "2026-09-13T14:15:51.071Z",
+          "wallClockMs": 176363,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 175463,
+              "attemptLatenciesMs": [
+                175463
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 300822,
+                "outputTokens": 7554,
+                "cachedInputTokens": 249856,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 3201,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/job.js",
+                "src/queue.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 300822,
+            "outputTokens": 7554,
+            "cachedInputTokens": 249856,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 3201,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_failures",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_cancellation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_queue_running",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/job.js",
+            "src/queue.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_749dbd792fcd81bee500dda4f0abcd04",
+          "version": 1,
+          "reservationId": "benchmark_reservation_67edec7101f41259c10224e329a82b6c",
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:10:18.455Z",
+          "trialId": "benchmark_trial_67edec7101f41259c10224e329a82b6c",
+          "requestsCharged": 5,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.9375,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_d101592906fd55b635c46f27ab08fc1c",
+          "version": 1,
+          "reservationId": "benchmark_reservation_360e714f42bfece0eae66c361da1e35a",
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:05:13.492Z",
+          "trialId": "benchmark_trial_360e714f42bfece0eae66c361da1e35a",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_5632f89d5afa9729932c35b53572c889",
+          "version": 1,
+          "reservationId": "benchmark_reservation_f120ac1402ea99fa5f7f9f311529cf08",
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:12:54.672Z",
+          "trialId": "benchmark_trial_f120ac1402ea99fa5f7f9f311529cf08",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.5625,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_cad31206bfed4c2c0be74d1b4872eca4",
+          "version": 1,
+          "reservationId": "benchmark_reservation_4e6ef1409364865a53af5e349fd97b5c",
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:15:51.108Z",
+          "trialId": "benchmark_trial_4e6ef1409364865a53af5e349fd97b5c",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_67edec7101f41259c10224e329a82b6c",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:05:13.538Z",
+          "requestAllowance": 21,
+          "reportedCostAllowanceUsd": 3.9375
+        },
+        {
+          "id": "benchmark_reservation_360e714f42bfece0eae66c361da1e35a",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_1_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:03:26.893Z",
+          "requestAllowance": 16,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_f120ac1402ea99fa5f7f9f311529cf08",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:10:18.473Z",
+          "requestAllowance": 29,
+          "reportedCostAllowanceUsd": 5.4375
+        },
+        {
+          "id": "benchmark_reservation_4e6ef1409364865a53af5e349fd97b5c",
+          "version": 1,
+          "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+          "slotId": "slot_2_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:12:54.691Z",
+          "requestAllowance": 55,
+          "reportedCostAllowanceUsd": 10.3125
+        }
+      ]
+    },
+    {
+      "sourceSha256": "bdea23fbe3a2477017af1ccb891d3a96a92ffb868e43fc63fc8592e969474dab",
+      "campaign": {
+        "id": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+        "version": 1,
+        "createdAt": "2026-09-13T14:16:52.831Z",
+        "scenario": {
+          "id": "workspace_maintenance",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+          "verifierId": "workspace_maintenance_hidden_v1",
+          "objectiveRevision": "workspace_maintenance_objective_v1"
+        },
+        "harnessRevision": "recurs_0_1_0-alpha_11",
+        "launchProtocolRevision": "company-benchmark-parent-only-v2",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 64,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-workspace_maintenance-v1-blueprint",
+          "revision": 1,
+          "sha256": "4fd728f13a1029dd7f346d7ceefdf75522071832bd1bae0d69c771d8d28d4450"
+        },
+        "baseline": {
+          "id": "single-strong",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_single-strong",
+            "armId": "single-strong",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_single-strong",
+            "armId": "single-strong",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_fb585b3ed2aa49f01b592fd1abd96414",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "workspace_maintenance",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+            "verifierId": "workspace_maintenance_hidden_v1",
+            "objectiveRevision": "workspace_maintenance_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-workspace_maintenance-v1-blueprint",
+            "revision": 1,
+            "sha256": "4fd728f13a1029dd7f346d7ceefdf75522071832bd1bae0d69c771d8d28d4450"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "failed",
+          "startedAt": "2026-09-13T14:25:13.844Z",
+          "completedAt": "2026-09-13T14:25:39.828Z",
+          "wallClockMs": 25984,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 25223,
+              "attemptLatenciesMs": [
+                25223
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 26668,
+                "outputTokens": 1064,
+                "cachedInputTokens": 12032,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 68,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 26668,
+            "outputTokens": 1064,
+            "cachedInputTokens": 12032,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 68,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "failed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_paths",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_maintenance_env",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_maintenance_redact",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 2,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": [
+            {
+              "stage": "execution",
+              "code": "company_goal_failed",
+              "scope": "roster_execution"
+            },
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        },
+        {
+          "id": "benchmark_trial_994635bceb7988d9b825e0dd3d8b8619",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "workspace_maintenance",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+            "verifierId": "workspace_maintenance_hidden_v1",
+            "objectiveRevision": "workspace_maintenance_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:16:53.045Z",
+          "completedAt": "2026-09-13T14:25:13.766Z",
+          "wallClockMs": 500721,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 499918,
+              "attemptLatenciesMs": [
+                499918
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 312612,
+                "outputTokens": 8722,
+                "cachedInputTokens": 278272,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 2953,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/env.js",
+                "src/paths.js",
+                "src/redact.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 312612,
+            "outputTokens": 8722,
+            "cachedInputTokens": 278272,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 2953,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_paths",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_env",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_redact",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 2,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/env.js",
+            "src/paths.js",
+            "src/redact.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_96d3c1459ecf799391e03d904fee706a",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "workspace_maintenance",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+            "verifierId": "workspace_maintenance_hidden_v1",
+            "objectiveRevision": "workspace_maintenance_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": {
+            "id": "company-benchmark-workspace_maintenance-v1-blueprint",
+            "revision": 1,
+            "sha256": "4fd728f13a1029dd7f346d7ceefdf75522071832bd1bae0d69c771d8d28d4450"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "failed",
+          "startedAt": "2026-09-13T14:25:39.892Z",
+          "completedAt": "2026-09-13T14:26:05.201Z",
+          "wallClockMs": 25309,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 24547,
+              "attemptLatenciesMs": [
+                24547
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 26610,
+                "outputTokens": 1002,
+                "cachedInputTokens": 9984,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 64,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 26610,
+            "outputTokens": 1002,
+            "cachedInputTokens": 9984,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 64,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "failed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_paths",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_maintenance_env",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_maintenance_redact",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 2,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": [
+            {
+              "stage": "execution",
+              "code": "company_goal_failed",
+              "scope": "roster_execution"
+            },
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        },
+        {
+          "id": "benchmark_trial_0e14e3846442d4d5c16d5a879a6a4eea",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 2,
+          "scenario": {
+            "id": "workspace_maintenance",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+            "verifierId": "workspace_maintenance_hidden_v1",
+            "objectiveRevision": "workspace_maintenance_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-parent-only-v2",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T14:26:05.266Z",
+          "completedAt": "2026-09-13T14:27:57.156Z",
+          "wallClockMs": 111890,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 111139,
+              "attemptLatenciesMs": [
+                111139
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 140257,
+                "outputTokens": 4863,
+                "cachedInputTokens": 119296,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1917,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/env.js",
+                "src/paths.js",
+                "src/redact.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 140257,
+            "outputTokens": 4863,
+            "cachedInputTokens": 119296,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1917,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_paths",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_env",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_maintenance_redact",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 1,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/env.js",
+            "src/paths.js",
+            "src/redact.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_bcd6ed2a2f7e5a45cc143badcb584a1a",
+          "version": 1,
+          "reservationId": "benchmark_reservation_fb585b3ed2aa49f01b592fd1abd96414",
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:25:39.857Z",
+          "trialId": "benchmark_trial_fb585b3ed2aa49f01b592fd1abd96414",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_06f061651eab0edd09c73c146ae1b43e",
+          "version": 1,
+          "reservationId": "benchmark_reservation_994635bceb7988d9b825e0dd3d8b8619",
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:25:13.805Z",
+          "trialId": "benchmark_trial_994635bceb7988d9b825e0dd3d8b8619",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_cbfa8fde4df19a312fb8d9b379bfebb5",
+          "version": 1,
+          "reservationId": "benchmark_reservation_96d3c1459ecf799391e03d904fee706a",
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:26:05.229Z",
+          "trialId": "benchmark_trial_96d3c1459ecf799391e03d904fee706a",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_80ff84039dd32b3cb2f0892c10c176fe",
+          "version": 1,
+          "reservationId": "benchmark_reservation_0e14e3846442d4d5c16d5a879a6a4eea",
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T14:27:57.189Z",
+          "trialId": "benchmark_trial_0e14e3846442d4d5c16d5a879a6a4eea",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.1875,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_fb585b3ed2aa49f01b592fd1abd96414",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:25:13.823Z",
+          "requestAllowance": 21,
+          "reportedCostAllowanceUsd": 3.9375
+        },
+        {
+          "id": "benchmark_reservation_994635bceb7988d9b825e0dd3d8b8619",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_1_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:16:53.012Z",
+          "requestAllowance": 16,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_96d3c1459ecf799391e03d904fee706a",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:25:39.875Z",
+          "requestAllowance": 31,
+          "reportedCostAllowanceUsd": 5.8125
+        },
+        {
+          "id": "benchmark_reservation_0e14e3846442d4d5c16d5a879a6a4eea",
+          "version": 1,
+          "campaignId": "company-proof-63be8784-1ecc-4000-9d7c-bebc71d008db",
+          "slotId": "slot_2_single-strong",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T14:26:05.247Z",
+          "requestAllowance": 61,
+          "reportedCostAllowanceUsd": 11.4375
+        }
+      ]
+    }
+  ]
+}

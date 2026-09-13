@@ -1,0 +1,523 @@
+{
+  "version": 1,
+  "kind": "offline_verifier_amendment",
+  "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+  "originalVerifierId": "queue_cancellation_hidden_v1",
+  "correctedVerifierId": "queue_cancellation_hidden_v2",
+  "reason": "Exact add/remove call counts rejected valid repeated cleanup and once-only listeners. The amendment inspects actual retained abort listeners. All four final workspaces are replayed; original records remain unchanged. No model reruns.",
+  "stagedCandidates": "Unavailable for the failed team attempt; final-workspace replay cannot assess rejected staged code.",
+  "records": [
+    {
+      "trialId": "benchmark_trial_67edec7101f41259c10224e329a82b6c",
+      "slotId": "slot_1_company-auto",
+      "executionStatus": "failed",
+      "originalRecordedVerification": {
+        "status": "failed",
+        "workspaceIntegrity": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "originalReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "correctedReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "unchangedFromFixture": true,
+      "candidateFiles": [
+        {
+          "path": "package.json",
+          "sha256": "16e39d822f7dd3ce4709a298f01e1a86bd08aeaf9f9783d127b474406295a578"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a9ee3c518fea0ba621b830cadf9136c782f161f5f9c17f47f090de29d5bb8b5c"
+        },
+        {
+          "path": "src/job.js",
+          "sha256": "a605dd4705d26c012f45a4f0446b8cb33735264c5a7ce01b5f55c04751331f14"
+        },
+        {
+          "path": "src/queue.js",
+          "sha256": "870f9528341426ca7cb9baa40eec93aa5cff584874c2ce9df3a14e76f8035e21"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "f99f92d0937ad48f70a10ed869b5c8ea1f8446a5b50bb01f87781881ede82b04"
+        }
+      ]
+    },
+    {
+      "trialId": "benchmark_trial_360e714f42bfece0eae66c361da1e35a",
+      "slotId": "slot_1_single-strong",
+      "executionStatus": "completed",
+      "originalRecordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "originalReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "correctedReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "unchangedFromFixture": false,
+      "candidateFiles": [
+        {
+          "path": "package.json",
+          "sha256": "16e39d822f7dd3ce4709a298f01e1a86bd08aeaf9f9783d127b474406295a578"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a9ee3c518fea0ba621b830cadf9136c782f161f5f9c17f47f090de29d5bb8b5c"
+        },
+        {
+          "path": "src/job.js",
+          "sha256": "8615f1bc9dff047065e504c4702c3fcdb35430bc698e4402e89b92bd7f8c069d"
+        },
+        {
+          "path": "src/queue.js",
+          "sha256": "38fde77fffe64f327770a5b6fc4a3925789123818f25da3fc78272b059f6458a"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "f99f92d0937ad48f70a10ed869b5c8ea1f8446a5b50bb01f87781881ede82b04"
+        }
+      ]
+    },
+    {
+      "trialId": "benchmark_trial_f120ac1402ea99fa5f7f9f311529cf08",
+      "slotId": "slot_2_company-auto",
+      "executionStatus": "completed",
+      "originalRecordedVerification": {
+        "status": "failed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "originalReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "correctedReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "failed"
+          }
+        ]
+      },
+      "unchangedFromFixture": false,
+      "candidateFiles": [
+        {
+          "path": "package.json",
+          "sha256": "16e39d822f7dd3ce4709a298f01e1a86bd08aeaf9f9783d127b474406295a578"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a9ee3c518fea0ba621b830cadf9136c782f161f5f9c17f47f090de29d5bb8b5c"
+        },
+        {
+          "path": "src/job.js",
+          "sha256": "d6b5a925d1254b2553d8270778b1baacb2164c75408a303f0f202df70533506e"
+        },
+        {
+          "path": "src/queue.js",
+          "sha256": "a78542dbd75add344a1d25a3c9c9a4b27962372e07cd52813f94fd94124cb571"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "f99f92d0937ad48f70a10ed869b5c8ea1f8446a5b50bb01f87781881ede82b04"
+        }
+      ]
+    },
+    {
+      "trialId": "benchmark_trial_4e6ef1409364865a53af5e349fd97b5c",
+      "slotId": "slot_2_single-strong",
+      "executionStatus": "completed",
+      "originalRecordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "originalReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "correctedReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_failures",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_cancellation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_queue_running",
+            "status": "passed"
+          }
+        ]
+      },
+      "unchangedFromFixture": false,
+      "candidateFiles": [
+        {
+          "path": "package.json",
+          "sha256": "16e39d822f7dd3ce4709a298f01e1a86bd08aeaf9f9783d127b474406295a578"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a9ee3c518fea0ba621b830cadf9136c782f161f5f9c17f47f090de29d5bb8b5c"
+        },
+        {
+          "path": "src/job.js",
+          "sha256": "7a1331300f2d45967dcac4f8ec2313acea48aa12818073bee100f2321d4df7ae"
+        },
+        {
+          "path": "src/queue.js",
+          "sha256": "f62f70457901e2270b65bb4723d6a0a59507a5e9f26910ef6995ac96778c4ccc"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "f99f92d0937ad48f70a10ed869b5c8ea1f8446a5b50bb01f87781881ede82b04"
+        }
+      ]
+    }
+  ]
+}

@@ -58,3 +58,28 @@ test("fresh probe uses the exact Luna parent for both arms and preserves the one
   assert.deepEqual(campaign.arms.map((arm) => arm.reportedCostUsd), [null, null]);
   assert.equal(fresh.selection.executedArtifactSha256, "760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f");
 });
+
+test("explicit reservation inventory distinguishes unattempted and unsettled slots without fabricating trials", () => {
+  const copy = structuredClone(fresh);
+  copy.selection.includeReservationInventory = true;
+  const entry = copy.campaigns[0];
+  const settlement = entry.settlements[0];
+  entry.reservations = [{
+    id: settlement.reservationId, version: 1, campaignId: entry.campaign.id,
+    slotId: settlement.slotId, attempt: 1, reservedAt: entry.campaign.createdAt,
+    requestAllowance: 96, reportedCostAllowanceUsd: 3,
+  }];
+  entry.trials = [];
+  entry.settlements = [];
+  const [summary] = summarizeEvidence(copy);
+  assert.equal(summary.plannedSlots, 2);
+  assert.equal(summary.recordedTrials, 0);
+  assert.equal(summary.unattemptedSlots, 1);
+  assert.equal(summary.unsettledReservations, 1);
+  assert.equal(summary.complete, false);
+  assert.ok(summary.arms.every((arm) => arm.passed === 0 && arm.inputTokens === null && arm.medianWallClockMs === null));
+  entry.settlements = [settlement];
+  assert.throws(() => validateEvidence(copy), /does not back trial/u);
+  entry.reservations = [];
+  assert.throws(() => validateEvidence(copy), /without reservation/u);
+});

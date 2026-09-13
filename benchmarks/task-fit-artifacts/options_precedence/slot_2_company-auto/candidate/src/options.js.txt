@@ -1,0 +1,28 @@
+export function resolveOptions(defaults, project = {}, cli = {}) {
+  const result = {};
+  for (const key of Object.keys(defaults)) {
+    let value = defaults[key];
+
+    if (
+      Object.prototype.hasOwnProperty.call(project, key) &&
+      project[key] !== undefined
+    ) {
+      value = project[key];
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(cli, key) &&
+      cli[key] !== undefined
+    ) {
+      value = cli[key];
+    }
+
+    Object.defineProperty(result, key, {
+      value,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return result;
+}

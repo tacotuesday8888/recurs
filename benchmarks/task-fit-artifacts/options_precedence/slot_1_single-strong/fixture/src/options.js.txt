@@ -1,0 +1,7 @@
+export function resolveOptions(defaults, project = {}, cli = {}) {
+  const result = {};
+  for (const key of Object.keys(defaults)) {
+    result[key] = cli[key] || project[key] || defaults[key];
+  }
+  return result;
+}

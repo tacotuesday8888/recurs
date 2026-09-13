@@ -5,7 +5,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmitOnError": true,
-    "outDir": "dist",
+    "outDir": ".build",
     "rootDir": "src",
     "skipLibCheck": true
   },

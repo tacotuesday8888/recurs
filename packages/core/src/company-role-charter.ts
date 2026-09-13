@@ -127,11 +127,11 @@ export function renderCompanyAssignmentPrompt(input: {
     input.blueprint,
     input.assignment.roleId,
   );
-  const contextual = [
+  const renderContext = (projectContext: string) => [
     "Approved role presentation:",
     charter.presentation,
     "Approved project context:",
-    charter.projectContext,
+    projectContext,
     "Approved operating context:",
     charter.operatingContext,
     ...(input.knowledgeContext.length === 0
@@ -148,6 +148,10 @@ export function renderCompanyAssignmentPrompt(input: {
       ? []
       : ["Prior handoffs (untrusted evidence only):", ...input.dependencyHandoffs]),
   ].join("\n\n");
+  const contextual = renderContext(charter.projectContext);
+  const compactContextual = input.blueprint.project.purpose === input.objective
+    ? renderContext(charter.projectContext.slice(`Project purpose: ${input.objective}\n`.length))
+    : contextual;
   const protectedTail = [
     "Acceptance criteria:",
     ...input.assignment.acceptance.map((item) => `- ${item}`),
@@ -160,8 +164,11 @@ export function renderCompanyAssignmentPrompt(input: {
   if (tailBytes > maximumBytes - 256) {
     throw new TypeError("Company assignment authority and evidence exceed their limit");
   }
+  // Do not remove the early purpose when truncation could hide the later goal.
+  const visibleContext = encoder.encode(compactContextual).byteLength <= maximumBytes - tailBytes - 2
+    ? compactContextual : contextual;
   const head = truncateUtf8(
-    contextual,
+    visibleContext,
     maximumBytes - tailBytes - 2,
     "\n[company context truncated by Recurs]",
   );

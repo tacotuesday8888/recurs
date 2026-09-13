@@ -1,7 +1,11 @@
 # Reproducible Recurs benchmarks
 
-The published evidence does **not** establish a team advantage. The two evidence
-sets are sanitized exports of real model-backed campaigns. `current-results.json`
+The published evidence does **not** establish a team advantage. The three evidence
+sets are sanitized exports of real model-backed campaigns. `task-fit-results.json`
+retains all twelve original pilot slots, including two invalid team setups.
+See [task-fit findings](TASK_FIT_RESULTS.md), [protocol](TASK_FIT_PROTOCOL.md), and
+the separate [offline queue-verifier audit](queue-verifier-audit.json). The
+corrected independent campaign is predeclared but unrun, awaiting authorization. `current-results.json`
 contains one fresh foreground pair; `results.json` preserves the full historical
 Round 2 inventory. Neither contains simulated model-quality results.
 
@@ -72,8 +76,7 @@ workspace. Those limits remain distinct from schema and arithmetic validation.
 [Round 2 report](../docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
 All 27 historical trial records and 30 slot settlements are retained, including failed
 trials, unmatched-parent comparisons and the interrupted campaign. No run was
-excluded based on outcome. The default website table is the fresh foreground
-pair; every historical campaign remains selectable without pooling harnesses.
+excluded based on outcome. The default website table is the small option-precedence pilot; every historical campaign remains selectable without pooling harnesses.
 
 | Complete matched-parent campaign | Verified / planned | Median time | Total input | Total output |
 | --- | ---: | ---: | ---: | ---: |
@@ -143,7 +146,7 @@ result claim. Historical and current-harness results must stay separate.
 
 ## Refresh a public export
 
-Only the local campaign/trial/settlement stores are read; no auth files,
+Only the local campaign/trial/settlement stores, plus reservations when explicitly selected, are read; no auth files,
 environment values, prompts or raw model output are read or published.
 
 ```sh

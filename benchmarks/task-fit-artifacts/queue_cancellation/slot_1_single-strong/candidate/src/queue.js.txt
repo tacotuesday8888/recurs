@@ -1,0 +1,34 @@
+import { createJob } from './job.js';
+export function createQueue(concurrency = 1) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new RangeError('concurrency');
+  const pending = [];
+  let active = 0;
+  function pump() {
+    while (active < concurrency && pending.length) {
+      const job = pending.shift();
+      if (!job.start()) continue;
+      active++;
+      Promise.resolve().then(() => job.task(job.signal)).then(value => {
+        job.fulfill(value);
+        active--;
+        pump();
+      }, error => {
+        job.fail(error);
+        active--;
+        pump();
+      });
+    }
+  }
+  return {
+    add(task, { signal } = {}) {
+      const job = createJob(task, signal, cancelledJob => {
+        const index = pending.indexOf(cancelledJob);
+        if (index !== -1) pending.splice(index, 1);
+      });
+      if (job.state === 'queued') pending.push(job);
+      pump();
+      return job.promise;
+    },
+    stats() { return { active, queued: pending.length }; },
+  };
+}

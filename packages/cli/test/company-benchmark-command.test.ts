@@ -89,6 +89,12 @@ function connection(
 }
 
 describe("company benchmark command", () => {
+  it("accepts explicit artifact directories without treating them as connection ids", () => {
+    expect(parseCompanyBenchmarkCommand(["company", "--configured", "--allow-network", "--scenario", "queue_cancellation", "--artifacts", "/tmp/recurs trial artifacts"]))
+      .toMatchObject({ artifactsDirectory: "/tmp/recurs trial artifacts", scenarioId: "queue_cancellation" });
+    expect(() => parseCompanyBenchmarkCommand(["company", "--list", "--artifacts", "/tmp/artifacts"])).toThrow();
+  });
+
   it("requires explicit configured network authority and freezes resume inputs", () => {
     expect(parseCompanyBenchmarkCommand([
       "company", "--configured", "--allow-network", "--repetitions", "2",

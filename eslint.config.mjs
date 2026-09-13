@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/.worktrees/**",
+      "**/.build/**",
       "**/coverage/**",
       "**/dist/**",
       "**/node_modules/**",

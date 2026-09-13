@@ -1,0 +1,53 @@
+import { createJob, abortError } from './job.js';
+export function createQueue(concurrency = 1) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new RangeError('concurrency');
+  const pending = [];
+  let active = 0;
+  let pumping = false;
+
+  function removePending(job) {
+    const index = pending.indexOf(job);
+    if (index !== -1) pending.splice(index, 1);
+  }
+
+  function pump() {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (active < concurrency && pending.length) {
+      const job = pending.shift();
+      if (!job.start()) continue;
+      active++;
+      let result;
+      try {
+        result = job.task(job.signal);
+      } catch (error) {
+        release(job, 'failed', error);
+        continue;
+      }
+      Promise.resolve(result).then(
+        value => release(job, 'completed', value),
+        error => release(job, 'failed', error),
+      );
+      }
+    } finally {
+      pumping = false;
+    }
+  }
+
+  function release(job, state, value) {
+    if (!job.settle(state, value)) return;
+    active--;
+    pump();
+  }
+
+  return {
+    add(task, { signal } = {}) {
+      const job = createJob(task, signal, removePending);
+      if (job.state === 'queued') pending.push(job);
+      pump();
+      return job.promise;
+    },
+    stats() { return { active, queued: pending.length }; },
+  };
+}

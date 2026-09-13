@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCompanyBenchmarkBlueprint,
+  assertCompanyBenchmarkBlueprintFitsOperatingMode,
   getCompanyBenchmarkScenario,
 } from "../src/index.js";
 
@@ -26,6 +27,20 @@ describe("company benchmark blueprint", () => {
       role.executionProfileId === "implement_v2" &&
       role.capabilities.includes("repair")
     )).toBe(true);
+  });
+
+  it("bounds new independent worker scopes while preserving the original pilot authority", () => {
+    const original = createCompanyBenchmarkBlueprint(getCompanyBenchmarkScenario("workspace_maintenance", 1));
+    expect(original.roles.filter((role) => role.kind === "worker")).toHaveLength(3);
+    expect(() => assertCompanyBenchmarkBlueprintFitsOperatingMode(original)).toThrow("permits 2");
+    const blueprint = createCompanyBenchmarkBlueprint(getCompanyBenchmarkScenario("workspace_maintenance"));
+    const workers = blueprint.roles.filter((role) => role.kind === "worker");
+    expect(workers).toHaveLength(2);
+    expect(() => assertCompanyBenchmarkBlueprintFitsOperatingMode(blueprint)).not.toThrow();
+    expect(workers.map((role) => role.responsibility)).toEqual([
+      "Implement only src/paths.js, src/redact.js.", "Implement only src/env.js.",
+    ]);
+    expect(blueprint.authorityAnchors.independentReviewRoleIds).toHaveLength(1);
   });
 
   it("binds company authority to the selected scenario", () => {

@@ -22,6 +22,8 @@ import {
   verifyCompanyBenchmarkWorkspace,
 } from "../src/company-benchmark-scenario.js";
 
+import { TASK_FIT_REFERENCES } from "./company-benchmark-task-fit-reference.js";
+
 const roots: string[] = [];
 let sandboxAvailable: boolean | undefined;
 
@@ -69,11 +71,16 @@ afterEach(async () => {
 });
 
 describe("built-in company benchmark scenarios", () => {
-  it("publishes three versioned fixtures with stable digests", () => {
+  it("preserves historical digests while adding three task-fit fixtures", () => {
     expect(COMPANY_BENCHMARK_SCENARIOS.map((scenario) => scenario.id)).toEqual([
       "alias_registry",
       "layered_config",
       "retry_after",
+      "options_precedence",
+      "queue_cancellation",
+      "workspace_maintenance",
+      "queue_cancellation",
+      "workspace_maintenance",
     ]);
     const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
 
@@ -84,7 +91,7 @@ describe("built-in company benchmark scenarios", () => {
       difficulty: "medium",
       verifierId: "alias_registry_hidden_v2",
     });
-    expect(COMPANY_BENCHMARK_SCENARIOS.map((candidate) => [
+    expect(COMPANY_BENCHMARK_SCENARIOS.slice(0, 3).map((candidate) => [
       candidate.id,
       candidate.fixtureSha256,
     ])).toEqual([
@@ -101,9 +108,14 @@ describe("built-in company benchmark scenarios", () => {
         "ba99fc64c07892d54e15115bf04eb31ec5091755961d1d059ed794265ed5a22e",
       ],
     ]);
+    expect(COMPANY_BENCHMARK_SCENARIOS.slice(3, 6).map((candidate) => [candidate.id, candidate.fixtureSha256])).toEqual([
+      ["options_precedence", "ae4fc6481678fbe88423ba8a96d3e7b1e707417b49a3179c12ff3993c32ff02b"],
+      ["queue_cancellation", "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7"],
+      ["workspace_maintenance", "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1"],
+    ]);
     for (const candidate of COMPANY_BENCHMARK_SCENARIOS) {
       expect(candidate.hiddenCheckIds).toHaveLength(3);
-      expect(getCompanyBenchmarkScenario(candidate.id, 1)).toBe(candidate);
+      expect(getCompanyBenchmarkScenario(candidate.id, candidate.version)).toBe(candidate);
     }
     expect(getCompanyBenchmarkScenario("alias_registry", 1)).toBe(scenario);
     expect(() => getCompanyBenchmarkScenario("missing", 1)).toThrow(
@@ -136,6 +148,53 @@ describe("built-in company benchmark scenarios", () => {
         .toBe("passed");
       expect(result.checks.slice(-3).map((check) => check.id))
         .toEqual(scenario.hiddenCheckIds);
+    }
+  });
+
+  it.each(Object.keys(TASK_FIT_REFERENCES))("validates correct task-fit patches and rejects the original defects: %s", async (scenarioId) => {
+    const root = await workspace();
+    const scenario = getCompanyBenchmarkScenario(scenarioId, 1);
+    const prepared = await initializeCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, processRunner: containedTestRunner });
+    const original = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(original.status).toBe("failed");
+    for (const [filePath, content] of Object.entries(TASK_FIT_REFERENCES[scenarioId]!)) {
+      await writeFile(path.join(root, filePath), content);
+    }
+    const correct = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(correct.status, JSON.stringify(correct)).toBe("passed");
+    // Leave one original module defect in an otherwise correct candidate.
+    const brokenPath = scenario.allowedChangedPaths[0]!;
+    await writeFile(path.join(root, brokenPath), scenario.files.find((file) => file.path === brokenPath)!.content);
+    const incomplete = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(incomplete.status).toBe("failed");
+    expect(incomplete.checks.some((check) => scenario.hiddenCheckIds.includes(check.id as typeof scenario.hiddenCheckIds[number]) && check.status === "failed")).toBe(true);
+  });
+
+  it("checks actual listener retention in v2 while preserving the frozen v1 result", async () => {
+    const original = getCompanyBenchmarkScenario("queue_cancellation", 1);
+    const corrected = getCompanyBenchmarkScenario("queue_cancellation", 2);
+    expect(corrected.fixtureSha256).toBe(original.fixtureSha256);
+    for (const cleanup of ["repeated", "once", "leaking"] as const) {
+      const root = await workspace();
+      const prepared = await initializeCompanyBenchmarkWorkspace({ scenario: corrected, workspaceRoot: root, processRunner: containedTestRunner });
+      const reference = TASK_FIT_REFERENCES.queue_cancellation!;
+      let job = reference["src/job.js"]!;
+      let queue = reference["src/queue.js"]!;
+      if (cleanup === "repeated") queue = queue.replace("job.state = state; active--;", "job.cleanup(); job.state = state; active--;");
+      if (cleanup === "once") {
+        job = job.replace("signal.addEventListener('abort', cancel)", "signal.addEventListener('abort', cancel, { once: true })");
+        queue = queue.replace("job.state = 'running'; job.cleanup();", "job.state = 'running';");
+        queue = queue.replace("job.state = state; active--;", "if (!job.signal?.aborted) job.cleanup(); job.state = state; active--;");
+      }
+      if (cleanup === "leaking") job = job.replace("if (signal) signal.removeEventListener('abort', cancel);", "/* Deliberately leak for the negative control. */");
+      await writeFile(path.join(root, "src/job.js"), job);
+      await writeFile(path.join(root, "src/queue.js"), queue);
+      const result = await verifyCompanyBenchmarkWorkspace({ scenario: corrected, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+      expect(result.status, `${cleanup}: ${JSON.stringify(result)}`).toBe(cleanup === "leaking" ? "failed" : "passed");
+      if (cleanup !== "leaking") {
+        const frozen = await verifyCompanyBenchmarkWorkspace({ scenario: original, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+        expect(frozen.checks.find((check) => check.id === "hidden_queue_running")?.status).toBe("failed");
+      }
     }
   });
 

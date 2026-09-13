@@ -33,6 +33,7 @@ import {
   type CompanyBenchmarkScenario,
   type CompanyBenchmarkWorkspaceVerification,
   type RecursEvent,
+  type TeamRunState,
 } from "@recurs/core";
 import type { ModelProvider } from "@recurs/providers";
 import type {
@@ -44,6 +45,8 @@ import type {
 import { createStandaloneRuntime } from "./assembly.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RuntimeError } from "./runtime.js";
+
+import { retainCompanyBenchmarkArtifacts } from "./company-benchmark-artifacts.js";
 
 const LAUNCH_INVOCATION = createHostInvocation({
   invocation: "goal",
@@ -225,6 +228,8 @@ function isCancellation(error: unknown, signal?: AbortSignal): boolean {
 export interface RuntimeCompanyBenchmarkAdapterOptions {
   readonly blueprint: CompanyBlueprintV2;
   readonly sourceDataDirectory?: string;
+  readonly artifactsDirectory?: string;
+  readonly onArtifactError?: () => void | Promise<void>;
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly createProvider?: (
     input: CompanyBenchmarkExecutionInput,
@@ -294,6 +299,8 @@ export class RuntimeCompanyBenchmarkAdapter
       await mkdtemp(path.join(tmpdir(), "recurs-company-benchmark-home-")),
     );
     const startedAtMs = nowMs();
+    let retainedTrial: CompanyBenchmarkTrialV1 | null = null;
+    let retainedTeamRuns: readonly TeamRunState[] = [];
     let runtime: Awaited<ReturnType<typeof createStandaloneRuntime>> | null =
       null;
     let recorder: CompanyBenchmarkExecutionRecorder | null = null;
@@ -366,6 +373,7 @@ export class RuntimeCompanyBenchmarkAdapter
         dataDirectory,
         skillHomeDirectory: dataDirectory,
         reuseExistingSession: false,
+        delegationEnabled: arm.kind === "company" || input.campaign.launchProtocolRevision === "company-benchmark-launch-v1",
         operatingModeId: input.campaign.operatingModeId,
         permissionMode: input.campaign.permissionMode,
         ...(arm.kind === "company"
@@ -460,8 +468,9 @@ export class RuntimeCompanyBenchmarkAdapter
       const teamRuns = await Promise.all(
         entries.map((entry) => store.load(entry.id)),
       );
+      retainedTeamRuns = teamRuns;
       const completedAtMs = Math.max(startedAtMs, nowMs());
-      return projectCompanyBenchmarkTrial({
+      const trial = projectCompanyBenchmarkTrial({
         campaign: input.campaign,
         slot: input.slot,
         startedAtMs,
@@ -491,6 +500,8 @@ export class RuntimeCompanyBenchmarkAdapter
               }],
             }),
       });
+      retainedTrial = trial;
+      return trial;
     } catch (error) {
       if (error instanceof CompanyBenchmarkAllowanceError) throw error;
       if (isCancellation(error, input.signal)) throw error;
@@ -523,6 +534,19 @@ export class RuntimeCompanyBenchmarkAdapter
       });
     } finally {
       await runtime?.close().catch(() => {});
+      if (this.#options.artifactsDirectory !== undefined) {
+        try {
+          await retainCompanyBenchmarkArtifacts({
+            directory: this.#options.artifactsDirectory,
+            workspace, scenario, trial: retainedTrial,
+            campaignId: input.campaign.id, slotId: input.slot.slotId,
+            teamRuns: retainedTeamRuns,
+          });
+        } catch {
+          // Optional capture failure must never discard the measured trial.
+          try { await this.#options.onArtifactError?.(); } catch { /* preserve trial */ }
+        }
+      }
       await Promise.all([
         rm(workspace, { recursive: true, force: true }),
         rm(dataDirectory, { recursive: true, force: true }),

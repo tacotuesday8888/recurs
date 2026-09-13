@@ -1,50 +1,68 @@
-import { campaignName, context, resultRows, trialDetails, type Campaign } from "./evidence.js";
+import { installPageMotion } from "./motion.js";
+import { campaignName, context, resultRows, pairedRows, trialDetails, type Campaign } from "./evidence.js";
+
+import { chartCampaigns, chartMetrics, renderChart, type ChartMetric } from "./charts.js";
 
 const capture = document.querySelector<HTMLImageElement>("#terminal-capture")!;
-const guideResult = document.querySelector<HTMLElement>("#guide-result")!;
 const views = {
-  working: { file: "terminal-v19-working.svg", alt: "Recurs terminal showing active coding work and its agent floor" },
+  working: { file: "terminal-patch.svg", alt: "Recurs terminal with collapsed progress, clickable activity and a boxed composer" },
   diff: { file: "terminal-diff.svg", alt: "Actual Recurs diff review interface" },
   permission: { file: "terminal-permission.svg", alt: "Actual Recurs permission approval interface" },
 };
 type View = keyof typeof views;
-function showView(view: View) {
+const recording = document.querySelector<HTMLVideoElement>("#workflow-recording")!;
+const recordingControl = document.querySelector<HTMLButtonElement>("#recording-control")!;
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+let selectedView: View = "working";
+recording.muted = true;
+recordingControl.hidden = false;
+function showPoster() {
+  recording.pause();
+  recording.hidden = true;
+  capture.hidden = false;
+}
+async function playRecording() {
+  if (selectedView !== "working") return;
+  if (recording.ended) recording.currentTime = 0;
+  recording.hidden = false;
+  capture.hidden = true;
+  try { await recording.play(); }
+  catch { showPoster(); recordingControl.textContent = "Play recording"; }
+}
+recording.addEventListener("play", () => { recordingControl.textContent = "Pause recording"; });
+recording.addEventListener("pause", () => { recordingControl.textContent = "Resume recording"; });
+recording.addEventListener("ended", () => { showPoster(); recordingControl.textContent = "Replay recording"; });
+recording.addEventListener("error", () => { showPoster(); recordingControl.textContent = "Recording unavailable"; recordingControl.disabled = true; });
+recordingControl.addEventListener("click", () => {
+  if (recording.paused) void playRecording(); else recording.pause();
+});
+reducedMotion.addEventListener("change", () => {
+  if (reducedMotion.matches) { showPoster(); recordingControl.textContent = "Play recording"; }
+});
+if (!reducedMotion.matches) void playRecording();
+let viewRevision = 0;
+function showView(view: View, pointerInitiated = false) {
+  if (view === selectedView) return;
+  selectedView = view;
+  showPoster();
+  recordingControl.hidden = view !== "working";
+  recordingControl.textContent = "Play recording";
+  const revision = ++viewRevision;
+  capture.getAnimations().forEach((animation) => animation.cancel());
   capture.src = `./assets/${views[view].file}`;
   capture.alt = views[view].alt;
   document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.view === view));
   });
+  if (pointerInitiated && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    void capture.decode().then(() => {
+      if (revision !== viewRevision) return;
+      capture.animate([{ opacity: 0.65 }, { opacity: 1 }], { duration: 160, easing: "cubic-bezier(0.23, 1, 0.32, 1)" });
+    }).catch(() => {});
+  }
 }
 document.querySelectorAll<HTMLButtonElement>("[data-view]").forEach((button) => {
-  button.addEventListener("click", () => showView(button.dataset.view as View));
-});
-
-const command = document.querySelector<HTMLInputElement>("#command")!;
-const history: string[] = [];
-let historyIndex = 0;
-const commands: Record<string, { view?: View; message: string }> = {
-  "/agents": { view: "working", message: "/agents opens your agent controls and activity in Recurs. This is a capture of the working terminal." },
-  "/diff": { view: "diff", message: "/diff opens the code review interface in Recurs. This is an actual terminal capture." },
-  "/permissions": { view: "permission", message: "/permissions manages your policy in Recurs. This capture shows a file-change approval prompt." },
-  "/help": { message: "Explore /agents, /diff, or /permissions. This browser guide displays captures; it does not run commands or call a model." },
-};
-document.querySelector("#command-guide")!.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const value = command.value.trim();
-  if (!value) return;
-  history.push(value);
-  if (history.length > 50) history.shift();
-  historyIndex = history.length;
-  const entry = commands[value];
-  if (entry?.view) showView(entry.view);
-  guideResult.textContent = entry?.message ?? "This guide supports /agents, /diff, /permissions, and /help. Run Recurs locally for the full CLI.";
-  command.value = "";
-});
-command.addEventListener("keydown", (event) => {
-  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-  event.preventDefault();
-  historyIndex = Math.max(0, Math.min(history.length, historyIndex + (event.key === "ArrowUp" ? -1 : 1)));
-  command.value = history[historyIndex] ?? "";
+  button.addEventListener("click", (event) => showView(button.dataset.view as View, event.detail > 0));
 });
 
 const installCommand = document.querySelector<HTMLElement>("#install-command")!;
@@ -78,14 +96,57 @@ async function loadEvidence() {
       const campaign = campaigns.find((item) => item.id === select.value);
       if (!campaign) return;
       document.querySelector("#results-body")!.innerHTML = resultRows(campaign);
+      document.querySelector("#paired-body")!.innerHTML = pairedRows(campaign);
       document.querySelector("#campaign-context")!.textContent = context(campaign);
       document.querySelector("#trial-details")!.innerHTML = trialDetails(campaign);
       select.setAttribute("aria-label", `Explore a campaign: ${campaignName(campaign)}`);
     });
     select.disabled = false;
+    const chartTask = document.querySelector<HTMLSelectElement>("#chart-task")!;
+    const chartMetric = document.querySelector<HTMLSelectElement>("#chart-metric")!;
+    const chart = document.querySelector<HTMLElement>("#benchmark-chart")!;
+    const updateChart = () => {
+      const campaign = chartCampaigns(campaigns).find(item => item.id === chartTask.value);
+      if (!campaign || !(chartMetric.value in chartMetrics)) return;
+      chart.innerHTML = renderChart(campaign, chartMetric.value as ChartMetric);
+    };
+    chartTask.disabled = false;
+    chartMetric.disabled = false;
+    chartTask.addEventListener("change", updateChart);
+    chartMetric.addEventListener("change", updateChart);
+    const inspect = (event: Event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (!point) return;
+      point.classList.remove("tooltip-dismissed");
+      chart.querySelector("#chart-inspection")!.textContent = point.dataset.chartDetail!;
+    };
+    chart.addEventListener("focusin", inspect);
+    chart.addEventListener("click", inspect);
+    chart.addEventListener("pointerdown", (event) => { chart.classList.toggle("chart-touch", event.pointerType === "touch"); });
+    chart.addEventListener("pointerover", (event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (point && !(event.relatedTarget instanceof Node && point.contains(event.relatedTarget))) inspect(event);
+    });
+    document.addEventListener("keydown", (event) => {
+      chart.classList.remove("chart-touch");
+      if (event.key === "Escape") chart.querySelectorAll(".chart-point").forEach(point => point.classList.add("tooltip-dismissed"));
+    });
+    chart.addEventListener("keydown", (event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (!point) return;
+      if (event.key === "Escape") point.classList.add("tooltip-dismissed");
+      if (["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"].includes(event.key)) {
+        event.preventDefault();
+        const points = [...chart.querySelectorAll<HTMLButtonElement>(".chart-point")];
+        const offset = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+        points[(points.indexOf(point) + offset + points.length) % points.length]!.focus();
+      }
+    });
   } catch {
     select.disabled = true;
     document.querySelector("#campaign-context")!.append(" · Interactive data unavailable; the default result remains below.");
   }
 }
 void loadEvidence();
+
+installPageMotion(() => { showPoster(); recordingControl.textContent = "Play recording"; });
