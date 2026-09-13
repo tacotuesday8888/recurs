@@ -1,4 +1,4 @@
-import { escapeHtml, type Campaign } from "./evidence.js";
+import { type Campaign } from "./evidence.js";
 
 const tasks = [
   { scenario: "options_precedence", version: 1, title: "A small code change", description: "Make command-line options override saved settings.", finding: "Both setups finished both attempts. The team took longer." },
@@ -17,9 +17,7 @@ export function taskResults(campaigns: Campaign[]): string {
     const arms = ["single-strong", "company-auto"].map(id => {
       const arm = campaign.arms.find(item => item.id === id);
       if (!arm) throw new Error(`Missing configuration: ${id}`);
-      const trials = campaign.trials.filter(trial => trial.armId === id);
-      const attempts = (role: string) => trials.reduce((sum, trial) => sum + trial.roles.filter(item => item.role === role).reduce((total, item) => total + item.attempts, 0), 0);
-      return { ...arm, reviews: attempts("review"), repairs: attempts("repair") };
+      return arm;
     });
     const row = (label: string, values: string[], className = "") => `<tr class="${className}"><th scope="row">${label}</th>${values.map(value => `<td>${value}</td>`).join("")}</tr>`;
     return `<article class="task-result" data-scroll-reveal data-task="${task.scenario}">
@@ -29,9 +27,6 @@ export function taskResults(campaigns: Campaign[]): string {
         <tbody>
           ${row("Tasks finished", arms.map(arm => `${count(arm.passed)}<span class="count-total"> / ${arm.planned}</span>`), "completion-row")}
           ${row("Typical time", arms.map(arm => arm.medianWallClockMs === null ? "Not recorded" : `${count(Math.round(arm.medianWallClockMs / 1000))}<span class="metric-unit"> seconds</span>`))}
-          ${row("Reviews run", arms.map(arm => count(arm.reviews)))}
-          ${row("Repairs tried", arms.map(arm => count(arm.repairs)))}
-          ${row("Reported cost", arms.map(arm => arm.reportedCostUsd === null ? "Not reported" : escapeHtml(new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4 }).format(arm.reportedCostUsd))))}
         </tbody>
       </table>
     </article>`;

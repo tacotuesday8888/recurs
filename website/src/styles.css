@@ -225,12 +225,7 @@ header { position: sticky; top: 0; z-index: 20; background: var(--canvas); borde
 .count-total { font-size: 18px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
 .metric-unit { font-size: 12px; color: var(--muted); }
 .result-definitions { font-size: 13px; color: var(--muted); max-width: 85ch; margin-top: 18px; }
-.evidence-limits { border-top: 1px solid var(--line); margin-top: 44px; padding-top: 28px; }
-.evidence-limits h3 { font-size: 21px; }
-.evidence-limits dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 34px; margin-block: 24px; }
-.evidence-limits dt { font-size: 15px; margin-bottom: 7px; }
-.evidence-limits dd { margin: 0; font-size: 13px; color: var(--muted); }
-.evidence-limits > p { font-size: 13px; color: var(--muted); }
+.evidence-limits { font-size: 13px; color: var(--muted); max-width: 85ch; margin-top: 14px; }
 @media (max-width:760px) {
   .task-results { margin-top: 28px; }
   .task-result { grid-template-columns: 1fr; gap: 22px; padding-block: 28px; }
@@ -243,7 +238,6 @@ header { position: sticky; top: 0; z-index: 20; background: var(--canvas); borde
   .task-comparison thead th { font-size: 12px; }
   .metric-unit { display: block; font-size: 11px; }
   .count-total { font-size: 15px; }
-  .evidence-limits dl { grid-template-columns: 1fr; gap: 18px; }
   .evidence-heading { flex-wrap: wrap; gap: 14px; }
   .evidence-heading .text-link { max-width: none; text-align: left; }
 }

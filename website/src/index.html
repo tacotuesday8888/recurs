@@ -47,12 +47,8 @@
         <div class="evidence-heading"><h2 id="evidence-title">What happened in our tests?</h2><a class="text-link" href="./task-fit-results.md">Read the findings</a></div>
         <p class="evidence-intro">One agent or a team? We tried each task twice with each setup. Both ran inside Recurs, on small coding exercises.</p>
         <div class="task-results">{{TASK_RESULTS}}</div>
-        <p class="result-definitions">Finished means the code passed the task’s checks. Typical time is the midpoint of two attempt times, including failures. Reviews and repair attempts are totals across both attempts; they are not counts of bugs found.</p>
-        <div class="evidence-limits"><h3>What these tests don’t tell us yet</h3><dl>
-          <div><dt>Bugs found</dt><dd>Not measured. We counted review attempts, not confirmed discoveries.</dd></div>
-          <div><dt>A full development project</dt><dd>Not tested. These were small, prepared coding tasks.</dd></div>
-          <div><dt>Dollar cost</dt><dd>Not reported by the model provider. Token use is available in the details.</dd></div>
-        </dl><p>Two attempts per setup are too few to establish a reliable ranking. This is a comparison of two setups inside Recurs.</p></div>
+        <p class="result-definitions">Finished means the code passed the task’s checks. Typical time is the midpoint of two attempt times, including failures.</p>
+        <p class="evidence-limits">These small tasks had two attempts per setup. Bugs found and full-project development were not measured. Dollar cost is unavailable. Review attempts, token use, and the complete records are in the details below.</p>
         <details class="inspect-trials"><summary>See test details and data <span aria-hidden="true">＋</span></summary><div class="inspect-content">
         {{PILOT_OVERVIEW}}
         <p class="context">Twelve original records and four corrected workspace v2 records. Original failures and invalid setups remain visible. <a href="./task-fit-results.json" download>Download the original pilot</a>.</p>

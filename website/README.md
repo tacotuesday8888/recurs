@@ -51,7 +51,8 @@ arrow keys, hover and touch expose exact outcome details; Escape dismisses a
 tooltip. Chart changes do not animate. Detailed tables remain in Inspect trials.
 
 The public benchmark view now starts with three plain-language task comparisons:
-finished attempts, typical time, review attempts, repair attempts, and reported cost.
+finished attempts and typical time. One shared note explains unmeasured outcomes
+and unavailable dollar cost. Review/repair attempts and token use stay in the details.
 It uses the original option/queue records and the corrected workspace v2 records.
 Bug discovery is unmeasured, full development projects are untested, and dollar cost
 is unreported. All technical charts, original invalid setups, model routes, and
