@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { visibleWidth, TUI, type Terminal } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
+import { TerminalDiffViewer } from "../src/terminal-diff.js";
 import { TerminalActivity } from "../src/terminal-activity.js";
 import { renderTerminalOpening } from "../src/terminal-opening.js";
 import { createTerminalTheme } from "../src/terminal-style.js";
@@ -73,7 +74,7 @@ describe("implemented terminal experience", () => {
     activity.emit({ ...base, type: "turn_cancelled", turnId: "turn" });
     expect(plain(activity.render(80, 9, 0, theme))).toContain("cancelled");
     expect(plain(activity.render(80, 9, 0, theme))).not.toContain("never applied");
-    start(activity, "+".repeat(70000));
+    start(activity, "+".repeat(1024 * 1024 + 1));
     activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
     expect(plain(activity.render(80, 9, 0, theme))).not.toContain("file changed");
   });
@@ -157,4 +158,31 @@ it("centers the changes pill and only activates its visible bounds", () => {
   expect(activity.targetAt(row, 0)).toBeUndefined();
   expect(stripVTControlCharacters(rows[row - 1]!)).toContain("╭");
   expect(stripVTControlCharacters(rows[row + 1]!)).toContain("╯");
+});
+
+it("retains a full read snapshot larger than the code-highlighting limit", () => {
+  const activity = new TerminalActivity();
+  const content = "line\n".repeat(20000);
+  activity.emit({ ...base, type: "tool_started", call: { id: "read", name: "read_file", arguments: { path: "large.txt" } } });
+  activity.emit({ ...base, type: "tool_completed", callId: "read", result: { output: content, metadata: { path: "large.txt", startLine: 1, endLine: 20000, totalLines: 20000 } } });
+  const rows = activity.render(80, 9, 0, theme);
+  const row = rows.findIndex((line) => stripVTControlCharacters(line).includes("Read file"));
+  expect(activity.targetAt(row)).toMatchObject({ kind: "source", content });
+});
+
+it("keeps large applied patches clickable and marks bounded turn previews partial", () => {
+  const activity = new TerminalActivity();
+  const patch = `--- a/large.txt\n+++ b/large.txt\n@@ -1 +1 @@\n-old\n+${"x".repeat(300000)}\n`;
+  start(activity, patch);
+  activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
+  const rows = activity.render(80, 9, 0, theme);
+  const edit = rows.findIndex((line) => stripVTControlCharacters(line).includes("Edited files"));
+  expect(activity.targetAt(edit)).toMatchObject({ kind: "diff", patch });
+  const summary = rows.findIndex((line) => stripVTControlCharacters(line).includes("file changed"));
+  const target = activity.targetAt(summary);
+  expect(target?.kind).toBe("diff");
+  if (target?.kind === "diff") {
+    const viewer = new TerminalDiffViewer(target.patch, { theme, rows: () => 12, back() {}, refresh() {} });
+    expect(plain(viewer.render(80))).toContain("partial preview");
+  }
 });
