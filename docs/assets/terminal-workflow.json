@@ -1,0 +1,23 @@
+{
+  "source": "scripts/smoke-terminal.mjs",
+  "captureCommand": "npm run package:smoke-terminal -- --update-capture --record-gif-frames",
+  "provider": "deterministic local test provider",
+  "modelBenchmark": false,
+  "installedArchiveSha256": "e58e87aef83dab350d97237c329c5baeb1da910a821d79ce5fd785d448562a77",
+  "frameDurationMs": 100,
+  "frames": 92,
+  "files": {
+    "terminal-workflow.gif": {
+      "sha256": "ec53514aa6ace7835e8f3b20a682356f3bb63a11c13cb83858247dbed50880c6",
+      "bytes": 250463
+    },
+    "terminal-workflow.mp4": {
+      "sha256": "a4881e31634a5dedc5bbb16c404f6178938e874025bdef889b447f88ff3693d3",
+      "bytes": 331826
+    },
+    "terminal-patch.svg": {
+      "sha256": "3b79bb23f14db0354f11bcb19ec0aee9a822d47c6f385ff92135af8bc44f9e9f",
+      "bytes": 37404
+    }
+  }
+}

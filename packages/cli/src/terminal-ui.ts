@@ -1,15 +1,16 @@
+import { TerminalComposer } from "./terminal-composer.js";
 import { TerminalSourceViewer } from "./terminal-source.js";
 import { agentGlyph } from "./terminal-agent-tree.js";
 import { effortBadge } from "./terminal-effort.js";
 import { workspaceGitStatus } from "./workspace-context.js";
 import { highlightTerminalCode } from "./terminal-code.js";
 import { TerminalDiffViewer } from "./terminal-diff.js";
-import { TerminalActivity } from "./terminal-activity.js";
+import { TerminalActivity, type ActivityTarget } from "./terminal-activity.js";
 import { renderTerminalOpening } from "./terminal-opening.js";
 import {
   CombinedAutocompleteProvider,
   Container,
-  Editor,
+  type Editor,
   Key,
   Markdown,
   ProcessTerminal,
@@ -713,7 +714,7 @@ class OnboardingComponent extends Container {
     const accent = theme.accent;
     const strong = theme.strong;
     const muted = theme.muted;
-    this.#editor = new Editor(tui, editorTheme(colorEnabled, theme), { paddingX: 1 });
+    this.#editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme), theme);
     this.#footer = new Text(
       muted("↑↓ choose · Enter continue · PgUp/PgDn review · Esc cancel"),
       1,
@@ -919,6 +920,11 @@ export class ChatComponent extends Container {
   #questionOffset = 0;
   #questionMaximumOffset = 0;
   readonly #updateHeader: () => void;
+  #detailsExpanded = false;
+  #rawTranscript = "";
+  #visibleTranscript = "";
+  #activityTop = 0;
+  #activityHeight = 0;
   #previousTranscriptRows = 0;
   #pending: PendingQuestion | null = null;
   readonly #questionQueue: PendingQuestion[] = [];
@@ -979,10 +985,10 @@ export class ChatComponent extends Container {
       const current = status();
       this.#header.setText(`${accent(`RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${renderAttachedAgentHeader(
         "Parent", `${current.model}${current.effort && theme ? ` · ${effortBadge(current.effort, theme, current.running ? this.presentation?.frame() ?? 0 : 0)}` : ""} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
-        current.running ? "running" : "ready", ((this.presentation?.frame() ?? 0) % 4) as 0 | 1 | 2 | 3, colorEnabled, theme,
+        current.running ? "running" : "ready", 0, colorEnabled, theme,
       )}${this.presentation?.workspace === undefined ? "" : `\n${muted(this.presentation.workspace())}`}`);
     };
-    this.editor = new Editor(tui, editorTheme(colorEnabled, theme), { paddingX: 1 });
+    this.editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme), theme);
     this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
         [...new Set([...commands, "theme"])].map((name) => ({ name })),
@@ -1001,15 +1007,17 @@ export class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · F4 thinking · Esc home"),
+      muted("Enter send · Ctrl+O details · Ctrl+G team · Ctrl+T tasks · /help"),
       1,
       0,
     );
     this.#empty = buffer.text().trim().length === 0;
-    this.#transcript.setText(buffer.text());
+    this.#rawTranscript = buffer.text();
+    this.#updateTranscript();
     buffer.onChange(() => {
       this.#empty = buffer.text().trim().length === 0;
-      this.#transcript.setText(buffer.text());
+      this.#rawTranscript = buffer.text();
+    this.#updateTranscript();
       tui.requestRender();
     });
     this.addChild(this.#header);
@@ -1021,10 +1029,11 @@ export class ChatComponent extends Container {
 
   override render(width: number): string[] {
     this.#updateHeader();
+    this.#updateTranscript();
     this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
-      ? "Enter send · /help · Esc home"
-      : width < 100 ? "Enter send · Ctrl+G team · Ctrl+T tasks · /help · Esc home"
-      : "Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · F4 thinking · Esc home"));
+      ? "Enter send · Ctrl+O details · Esc home"
+      : width < 100 ? "Enter send · Ctrl+O details · Ctrl+G team · Esc home"
+      : "Enter send · Ctrl+O details · Ctrl+G team · Ctrl+T tasks · /help"));
     const header = this.#header.render(width);
     const fullQuestion = this.#question.render(width);
     const editor = this.editor.render(width);
@@ -1057,7 +1066,29 @@ export class ChatComponent extends Container {
     // Keep input visible even when the terminal is shorter than the header.
     const rendered = [...visibleHeader, ...body, ...activity, ...question, ...editor, ...statusFooter];
     while (rendered.length < this.rows()) rendered.splice(visibleHeader.length, 0, "");
+    this.#activityTop = visibleHeader.length + body.length - Math.max(0, rendered.length - this.rows());
+    this.#activityHeight = activity.length;
     return rendered.slice(-Math.max(1, this.rows()));
+  }
+
+  scrollLines(lines: number): void { this.#scrollOffset = Math.max(0, this.#scrollOffset + lines); }
+
+  activityTargetAt(row: number, column?: number): ActivityTarget | undefined {
+    const local = row - this.#activityTop;
+    return local >= 0 && local < this.#activityHeight ? this.presentation?.activity.targetAt(local, column) : undefined;
+  }
+
+  #updateTranscript(): void {
+    const text = this.#detailsExpanded
+      ? [this.#rawTranscript, this.presentation?.activity.detailsMarkdown() ?? ""].filter(Boolean).join("\n\n")
+      : collapseTerminalCode(this.#rawTranscript);
+    if (text !== this.#visibleTranscript) { this.#visibleTranscript = text; this.#transcript.setText(text); }
+  }
+
+  toggleDetails(): void {
+    this.#detailsExpanded = !this.#detailsExpanded;
+    this.#updateTranscript();
+    this.#scrollOffset = 0;
   }
 
   get hasQuestion(): boolean { return this.#pending !== null; }
@@ -1215,7 +1246,11 @@ export class RecursInteractiveShell {
   readonly events: EventSink = {
     emit: async (event) => {
       if (event.sessionId === this.#transcriptSessionId) this.#activity.emit(event);
-      await this.#textEvents.emit(event);
+      // Approval dialogs show the full command before consent; the chat retains a short outcome.
+      if (event.type !== "permission_requested" && event.type !== "tool_started" && event.type !== "files_changed") {
+        await this.#textEvents.emit(event.type === "permission_resolved" && event.intent.category === "shell"
+          ? { ...event, intent: { ...event.intent, resource: "command" } } : event);
+      }
       if (this.#state === null) {
         this.#pendingEvents.push(event);
         return;
@@ -1403,6 +1438,7 @@ export class RecursInteractiveShell {
 
     const tui = new TUI(this.#terminal);
     const mount = (component: Component, focus: Component | null): void => {
+      this.#terminal.write(component instanceof ChatComponent ? "\u001b[?1000h\u001b[?1006h" : "\u001b[?1000l\u001b[?1006l");
       tui.clear();
       tui.addChild(new TerminalCanvas(
         component,
@@ -1459,9 +1495,7 @@ export class RecursInteractiveShell {
       { activity: this.#activity, frame: () => this.#frame, workspace: () => workspaceSummary, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
     );
     if (this.#transitionDraft) { chat.editor.setText(this.#transitionDraft); this.#transitionDraft = ""; }
-    const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled, this.#theme), {
-      paddingX: 1,
-    });
+    const companyEditor = new TerminalComposer(tui, editorTheme(this.#colorEnabled, this.#theme), this.#theme);
     companyEditor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
         [...new Set([...runtime.commandNames(), "theme"])].map((name) => ({ name })),
@@ -1476,6 +1510,13 @@ export class RecursInteractiveShell {
       if (view === "chat") return;
       view = "chat";
       mount(chat, chat.editor);
+    };
+    const openActivity = (target: ActivityTarget): void => {
+      const options = { theme: this.#theme, rows: () => this.#terminal.rows, back: showChat, refresh: () => tui.requestRender() };
+      const viewer = target.kind === "diff"
+        ? new TerminalDiffViewer(target.patch, { ...options, title: "Changes this turn" })
+        : new TerminalSourceViewer(target.kind === "source" ? target : { path: target.title, content: target.content, startLine: 1, totalLines: target.content.split("\n").length }, { ...options, browse: showChat });
+      view = "diff"; mount(viewer, viewer);
     };
     const showCompany = (): void => {
       if (view === "company") return;
@@ -1813,6 +1854,7 @@ export class RecursInteractiveShell {
         }
         if (result.type === "attach_process") {
           attached = true;
+          this.#terminal.write("\u001b[?1000l\u001b[?1006l");
           tui.stop();
           try {
             await this.#attachProcess(
@@ -1824,6 +1866,7 @@ export class RecursInteractiveShell {
           } finally {
             attached = false;
             tui.start();
+            if (view === "chat") this.#terminal.write("\u001b[?1000h\u001b[?1006h");
             tui.setFocus(
               view === "chat"
                 ? chat.editor
@@ -1878,6 +1921,15 @@ export class RecursInteractiveShell {
       void task.finally(() => submissionTasks.delete(task));
     };
     tui.addInputListener((data) => {
+      const mouse = data.startsWith("\u001b") ? /^\[<(\d+);(\d+);(\d+)([Mm])$/u.exec(data.slice(1)) : null;
+      if (mouse) {
+        if (view === "chat" && !chat.hasQuestion && (mouse[1] === "64" || mouse[1] === "65")) { chat.scrollLines(mouse[1] === "64" ? 3 : -3); tui.requestRender(); }
+        if (view === "chat" && !chat.hasQuestion && mouse[1] === "0" && mouse[4] === "M") {
+          const target = chat.activityTargetAt(Number(mouse[3]) - 1, Number(mouse[2]) - 1);
+          if (target) openActivity(target);
+        }
+        return { consume: true };
+      }
       if (view === "selection") {
         if (matchesKey(data, Key.ctrl("q"))) { selection.cancel?.(); finish({ type: "quit" }); return { consume: true }; }
         if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t"))) return { consume: true };
@@ -1895,6 +1947,9 @@ export class RecursInteractiveShell {
           return { consume: true };
         }
         if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t")) || matchesKey(data, Key.f2) || matchesKey(data, Key.f3)) return { consume: true };
+      }
+      if (view === "chat" && !chat.hasQuestion && matchesKey(data, Key.ctrl("o"))) {
+        chat.toggleDetails(); tui.requestRender(true); return { consume: true };
       }
       if ((view === "chat" || view === "company") && matchesKey(data, Key.f4) && activeSubmissions === 0 && !runtime.hasActiveRun) { showChat(); chat.onSubmit?.("/effort"); return { consume: true }; }
       if ((view === "chat" || view === "company") && matchesKey(data, Key.f3) && activeSubmissions === 0 && !runtime.hasActiveRun) {
@@ -1961,6 +2016,7 @@ export class RecursInteractiveShell {
       runtime.setSelectionHandler?.(null);
       state.onChange(null);
       chat.cancelQuestions();
+      this.#terminal.write("\u001b[?1000l\u001b[?1006l");
       tui.stop();
       runtime.cancel();
       await Promise.allSettled([...submissionTasks]);
@@ -1975,4 +2031,19 @@ export function createRecursInteractiveShell(
   },
 ): RecursInteractiveShell {
   return new RecursInteractiveShell(options);
+}
+
+/** Collapse complete and streaming fenced code without changing the stored transcript. */
+export function collapseTerminalCode(text: string): string {
+  let fence: string | null = null;
+  return text.split("\n").flatMap((line) => {
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
+    if (fence === null) {
+      if (!opening) return [line];
+      fence = opening[1]!;
+      return ["▸ Code · Ctrl+O expand"];
+    }
+    if (new RegExp(`^ {0,3}${fence[0]}{${fence.length},}\\s*$`, "u").test(line)) fence = null;
+    return [];
+  }).join("\n");
 }
