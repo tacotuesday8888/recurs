@@ -48,3 +48,13 @@ test("missing records and unknown dollars are never plotted as measured zero", (
   known.trials[0].usage.reportedCostUsd = 0.12;
   assert.match(renderChart(known, "cost"), /\$0\.1200/u);
 });
+
+
+test("corrected workspace results are quantitative observations distinct from invalid v1 setups", () => {
+  const corrected = campaigns.find(campaign => campaign.scenario === "workspace_maintenance" && campaign.scenarioVersion === 2);
+  assert.deepEqual(observations(corrected, "correctness").map(point => point.value), [1, 0, 1, 1]);
+  assert.deepEqual(observations(corrected, "runtime").map(point => point.value), [113.02, 157.999, 170.41, 226.613]);
+  assert.ok(observations(corrected, "runtime").every(point => !point.setupInvalid));
+  assert.match(renderChart(corrected, "runtime"), /class="chart-part team"/u);
+  assert.doesNotMatch(renderChart(corrected, "runtime"), /invalid|excluded from the comparison scale/iu);
+});

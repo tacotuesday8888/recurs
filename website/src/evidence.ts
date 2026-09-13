@@ -34,8 +34,9 @@ const scenarioNames: Record<string, string> = {
   layered_config: "Historical: layered config",
 };
 const invalidSetup = (campaign: Campaign) => campaign.scenario === "workspace_maintenance" && campaign.scenarioVersion === 1;
+const scenarioName = (campaign: Campaign) => `${scenarioNames[campaign.scenario] ?? campaign.scenario}${campaign.scenario === "workspace_maintenance" ? ` · v${campaign.scenarioVersion}` : ""}`;
 const setupNote = "Invalid team setup: three workers requested, two permitted. Both team attempts stopped before workers started; these times do not measure team efficiency.";
-export const campaignName = (campaign: Campaign) => `${scenarioNames[campaign.scenario] ?? campaign.scenario} (${campaign.date}, ${invalidSetup(campaign) ? "invalid team setup" : campaign.complete ? "complete" : "incomplete"})`;
+export const campaignName = (campaign: Campaign) => `${scenarioName(campaign)} (${campaign.date}, ${invalidSetup(campaign) ? "invalid team setup" : campaign.complete ? "complete" : "incomplete"})`;
 export function context(campaign: Campaign) {
   const workload = ({
     options_precedence: "A single-module option-precedence fix; mandatory review is an intentional overhead control.",
@@ -55,7 +56,7 @@ function uncached(input: number | null, cached: number | null): number | null {
 export function pilotOverview(campaigns: Campaign[]) {
   const pilot = campaigns.filter((campaign) => campaign.launchProtocolRevision === "company-benchmark-parent-only-v2");
   if (pilot.length === 0) return "";
-  const rows = pilot.map((campaign) => `<tr><th scope="row">${escapeHtml(scenarioNames[campaign.scenario] ?? campaign.scenario)}</th>${campaign.arms.slice(0, 2).map((arm) => `<td data-label="${escapeHtml(armName(arm.id))}"><strong>${invalidSetup(campaign) && arm.id === "company-auto" ? "2 invalid setups" : `${arm.passed} / ${arm.planned} verified`}</strong><small>${invalidSetup(campaign) && arm.id === "company-auto" ? "Workers never started" : arm.medianWallClockMs === null ? "Unknown time" : `${(arm.medianWallClockMs / 1000).toFixed(1)} s median`}<br>${number(arm.inputTokens)} input tokens</small></td>`).join("")}</tr>`).join("");
+  const rows = pilot.map((campaign) => `<tr><th scope="row">${escapeHtml(scenarioName(campaign))}${invalidSetup(campaign) ? " · invalid team setup" : ""}</th>${campaign.arms.slice(0, 2).map((arm) => `<td data-label="${escapeHtml(armName(arm.id))}"><strong>${invalidSetup(campaign) && arm.id === "company-auto" ? "2 invalid setups" : `${arm.passed} / ${arm.planned} verified`}</strong><small>${invalidSetup(campaign) && arm.id === "company-auto" ? "Workers never started" : arm.medianWallClockMs === null ? "Unknown time" : `${(arm.medianWallClockMs / 1000).toFixed(1)} s median`}<br>${number(arm.inputTokens)} input tokens</small></td>`).join("")}</tr>`).join("");
   return `<div class="table-scroll pilot-overview" tabindex="0" role="region" aria-label="All task-fit pilot results"><table><caption>All predeclared tasks</caption><thead><tr><th>Task</th><th>Single agent</th><th>Mixed-model team</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 export function pairedRows(campaign: Campaign) {
@@ -83,10 +84,7 @@ function renderTrial(trial: Trial) {
     `${escapeHtml(check.id)}: ${escapeHtml(check.status)}`
   ).join(" · ");
   const diagnostics = trial.roles.map((role) => {
-    const attemptMs = role.attemptLatenciesMs.reduce((total, value) => total + value, 0);
-    const overlap = role.role === "implement" && attemptMs > role.wallClockMs
-      ? "; implementation invocations overlapped in time" : "";
-    return `${escapeHtml(role.role)}: ${role.attempts} invocations, ${number(role.usage.inputTokens)} input (${number(role.usage.cachedInputTokens)} cached), ${number(role.usage.outputTokens)} output${overlap}`;
+    return `${escapeHtml(role.role)}: ${role.attempts} invocations, ${number(role.usage.inputTokens)} input (${number(role.usage.cachedInputTokens)} cached), ${number(role.usage.outputTokens)} output`;
   }).join("<br>");
   const failures = trial.failures.map((failure) => `${escapeHtml(failure.stage)}: ${escapeHtml(failure.code)}`).join(", ");
   return `<li>

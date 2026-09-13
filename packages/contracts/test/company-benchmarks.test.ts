@@ -311,6 +311,32 @@ function repairTrial(
 }
 
 describe("company benchmark campaign contracts", () => {
+  it.each(["queue_cancellation", "workspace_maintenance"])(
+    "preserves the declared v2 scenario version for %s",
+    (id) => {
+      const value = campaignValue();
+      const campaign = { ...value, scenario: { ...value.scenario, id, version: 2 } };
+      const parsed = parseCompanyBenchmarkCampaign(campaign);
+      expect(parsed.scenario).toEqual(campaign.scenario);
+      expect(parseCompanyBenchmarkCampaign(JSON.parse(JSON.stringify(parsed))))
+        .toEqual(parsed);
+    },
+  );
+
+  it.each([
+    ["workspace_maintenance", 0],
+    ["workspace_maintenance", 3],
+    ["workspace_maintenance", "2"],
+    ["queue_cancellation", 2.5],
+    ["options_precedence", 2],
+    ["unknown_scenario", 2],
+  ])("rejects undeclared scenario version %s v%s", (id, version) => {
+    const value = campaignValue();
+    expect(() => parseCompanyBenchmarkCampaign({
+      ...value, scenario: { ...value.scenario, id, version },
+    })).toThrow("Company benchmark scenario version is unsupported");
+  });
+
   it("preserves legacy campaign serialization without materializing a design", () => {
     const legacy = campaignValue();
     const parsed = parseCompanyBenchmarkCampaign(legacy);

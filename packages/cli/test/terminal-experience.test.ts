@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { visibleWidth, TUI, type Terminal } from "@earendil-works/pi-tui";
 import { stripVTControlCharacters } from "node:util";
@@ -16,6 +18,16 @@ const plain = (rows: string[]) => stripVTControlCharacters(rows.join("\n"));
 const start = (activity: TerminalActivity, patch: string) => activity.emit({ ...base, type: "tool_started", call: { id: "patch", name: "apply_patch", arguments: { patch } } });
 
 describe("implemented terminal experience", () => {
+  it("preserves pre-extraction terminal frames across color, compact sizes and rotation phases", async () => {
+    const baseline = JSON.parse(await readFile(new URL("./fixtures/terminal-opening-frames.json", import.meta.url), "utf8")) as {
+      samples: { width: number; height: number; colorEnabled: boolean; frame: number; sha256: string }[];
+    };
+    for (const sample of baseline.samples) {
+      const palette = createTerminalTheme(process.stdout, { colorEnabled: sample.colorEnabled, appearance: { version: 1, theme: "orange" } });
+      const rows = renderTerminalOpening(sample.width, sample.height, palette, sample.frame);
+      expect(createHash("sha256").update(JSON.stringify(rows)).digest("hex")).toBe(sample.sha256);
+    }
+  });
   it("preserves legacy preferences while presenting one combined interface", () => {
     const current = parseTerminalAppearance({ version: 1, theme: "orange", design: "v19" });
     expect(current.design).toBe("v19");

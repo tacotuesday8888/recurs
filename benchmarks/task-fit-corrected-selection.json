@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "title": "Task-fit correction: all four workspace v2 slots",
+  "sourceRevision": "a715dcc",
+  "sourceState": "Frozen corrected source plus only the contract compatibility patch documented at 61fc1e0; later prompt, runtime and UI changes excluded",
+  "executedArtifact": ".build/task-fit-corrected-a715dcc-contract-v2/main.mjs",
+  "executedArtifactSha256": "1dc58ace2efc4646646fe9443801be9ca3c7402ddb5e7be83306e1691932db3a",
+  "selectionReason": "One predeclared corrected workspace campaign, two repetitions per arm, four planned slots. All outcomes retained, no outcome-based repeats. The earlier 0.42-second contract failure occurred before campaign creation and is not a trial.",
+  "includeReservationInventory": true,
+  "campaignIds": ["company-proof-d43aa7c2-0dfe-4ec4-9ce0-04e3fcde0764"]
+}

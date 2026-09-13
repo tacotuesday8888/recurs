@@ -1,0 +1,45 @@
+export function selectPaths(paths, excluded = ['node_modules', '.git']) {
+  const excludedSegments = new Set(excluded);
+  const selected = new Set();
+
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.includes('\0')) {
+      continue;
+    }
+
+    const normalized = path.replaceAll('\\', '/');
+
+    // A leading slash also covers converted UNC paths. Drive-prefixed paths
+    // are absolute only when the drive prefix is followed by a separator.
+    if (normalized.startsWith('/') || /^[A-Za-z]:\//.test(normalized)) {
+      continue;
+    }
+
+    const segments = [];
+    let escapesRoot = false;
+
+    for (const segment of normalized.split('/')) {
+      if (segment === '' || segment === '.') {
+        continue;
+      }
+
+      if (segment === '..') {
+        if (segments.length === 0) {
+          escapesRoot = true;
+          break;
+        }
+        segments.pop();
+      } else {
+        segments.push(segment);
+      }
+    }
+
+    if (escapesRoot || segments.length === 0 || segments.some(segment => excludedSegments.has(segment))) {
+      continue;
+    }
+
+    selected.add(segments.join('/'));
+  }
+
+  return [...selected].sort();
+}

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "campaignId": "company-proof-d43aa7c2-0dfe-4ec4-9ce0-04e3fcde0764",
+  "slotId": "slot_1_company-auto",
+  "scenarioId": "workspace_maintenance",
+  "scenarioVersion": 2,
+  "fixtureSha256": "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1",
+  "files": [
+    {
+      "path": "package.json",
+      "status": "retained",
+      "sha256": "8e5d0e729ba1a61fdb567f795fae57beda47e914ea564979933248fb5aa417b4"
+    },
+    {
+      "path": "README.md",
+      "status": "retained",
+      "sha256": "0517c863c7ab103c5b3db2d1956c3444d664d63e9ddf7ce0770cb5082ca49eaf"
+    },
+    {
+      "path": "src/paths.js",
+      "status": "retained",
+      "sha256": "0f06e84123b74c875d8e867b026b1d76b427631a7a70ef432602fc090492b8f3"
+    },
+    {
+      "path": "src/env.js",
+      "status": "retained",
+      "sha256": "bbb7c4280c8ea1e723cbd0986583ddcefbc13ffd77394d35fa88783af7323faa"
+    },
+    {
+      "path": "src/redact.js",
+      "status": "retained",
+      "sha256": "714c0ee6d828ead7d2038bcfdfa7f99eeda514347747659c35ef126bca69bcdd"
+    },
+    {
+      "path": "src/report.js",
+      "status": "retained",
+      "sha256": "d1f99c8a694e310e60291e45536813901d3ef30943a41a8753d5c467837cc209"
+    },
+    {
+      "path": "test/visible.test.js",
+      "status": "retained",
+      "sha256": "8d34e19143be667e5407bbd2078baa9fc26ff3de88be93ce6e06cf32fc0f6f86"
+    }
+  ],
+  "trialId": "benchmark_trial_4d1c95fe4e18579aa932ccaa494744e4",
+  "capture": "Final delivered workspace only; rejected staged candidates and structured reviews were not retained by the frozen executable."
+}

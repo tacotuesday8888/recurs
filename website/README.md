@@ -40,7 +40,7 @@ repository. No deployment is implied by a local preview.
 
 The pilot includes explicit invalid-setup labels, every final candidate as a
 sanitized repository artifact, and a separate offline queue-verifier audit.
-The predeclared corrected independent campaign remains visibly unrun.
+The four corrected workspace v2 observations remain separate from the original v1 invalid setups, with explicit version labels and a separate download. The header renders the same extruded ASCII R geometry as the terminal opening, with native scrolling, session pause, reduced-motion and offscreen suspension.
 
 The interactive pilot chart shows both original observations for each arm.
 Measures are whole-trial runtime, externally verified completion, token parts

@@ -49,3 +49,43 @@ test("queue amendment binds every replay to the unchanged original record and ca
     assert.deepEqual(record.candidateFiles, manifest.files.map(({ path, sha256 }) => ({ path, sha256 })));
   }
 });
+
+
+test("all four corrected workspace captures are versioned separately and bind to independent replay", async () => {
+  const corrected = JSON.parse(await readFile(new URL("task-fit-corrected-results.json", root), "utf8"));
+  const audit = JSON.parse(await readFile(new URL("workspace-v2-verifier-audit.json", root), "utf8"));
+  assert.equal(corrected.campaigns.length, 1);
+  const { campaign, trials } = corrected.campaigns[0];
+  assert.equal(campaign.scenario.version, 2);
+  assert.equal(audit.campaignId, campaign.id);
+  assert.equal(trials.length, 4);
+  assert.equal(audit.records.length, trials.length);
+  const scenario = getCompanyBenchmarkScenario("workspace_maintenance", 2);
+  for (const trial of trials) {
+    const directory = new URL(`task-fit-artifacts/workspace_maintenance-v2/${trial.slotId}/`, root);
+    const manifest = JSON.parse(await readFile(new URL("manifest.json", directory), "utf8"));
+    assert.equal(manifest.scenarioVersion, 2);
+    assert.equal(manifest.campaignId, campaign.id);
+    assert.equal(manifest.trialId, trial.id);
+    assert.equal(manifest.fixtureSha256, scenario.fixtureSha256);
+    assert.deepEqual(manifest.files.map(file => file.path).sort(), scenario.files.map(file => file.path).sort());
+    for (const kind of ["candidate", "fixture"]) {
+      const archive = new URL(`${kind}/`, directory);
+      const inventory = await readdir(archive, { recursive: true, withFileTypes: true });
+      assert.equal(inventory.filter(file => file.isFile()).length, scenario.files.length);
+      for (const fixture of scenario.files) {
+        const bytes = await readFile(new URL(`${fixture.path}.txt`, archive));
+        assert.ok(bytes.length <= 65536);
+        if (kind === "fixture") assert.equal(bytes.toString("utf8"), fixture.content);
+        else assert.equal(createHash("sha256").update(bytes).digest("hex"), manifest.files.find(file => file.path === fixture.path).sha256);
+      }
+    }
+    const record = audit.records.find(item => item.trialId === trial.id);
+    assert.deepEqual(record.recorded, trial.verification);
+    assert.deepEqual(record.replay.checks, trial.verification.checks);
+    assert.equal(record.replay.status, trial.verification.status);
+    const integrity = record.replay.checks.filter(check => ["workspace_inventory", "git_state", "allowed_changes"].includes(check.id)).every(check => check.status === "passed") ? "passed" : "failed";
+    assert.equal(integrity, trial.verification.workspaceIntegrity);
+    assert.deepEqual(record.files, manifest.files.map(({ path, sha256 }) => ({ path, sha256 })));
+  }
+});

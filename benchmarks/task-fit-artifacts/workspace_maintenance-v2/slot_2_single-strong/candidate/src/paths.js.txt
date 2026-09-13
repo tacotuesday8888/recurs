@@ -1,0 +1,3 @@
+export function selectPaths(paths, excluded = ['node_modules', '.git']) {
+  return paths.filter(p => !excluded.some(part => p.includes(part))).sort();
+}

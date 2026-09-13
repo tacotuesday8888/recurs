@@ -29,3 +29,7 @@ attempt as an efficiency result.
 The prompt deduplication change is excluded from the corrected campaign bundle;
 it is measured and committed separately. The existing queue listener-count
 verifier is audited separately using retained files, without new model requests.
+
+The initial corrected executable failed before campaign creation because its
+contract rejected the declared v2 fixture. The pretrial failure and minimal
+replacement bundle are frozen in [the startup amendment](TASK_FIT_STARTUP_AMENDMENT.md).

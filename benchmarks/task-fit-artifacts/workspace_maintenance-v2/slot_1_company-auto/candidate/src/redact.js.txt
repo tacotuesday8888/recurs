@@ -1,0 +1,24 @@
+export function redact(value) {
+  if (Array.isArray(value)) {
+    return value.map(redact);
+  }
+
+  if (value && typeof value === 'object') {
+    const clone = {};
+
+    for (const [key, item] of Object.entries(value)) {
+      Object.defineProperty(clone, key, {
+        value: /^(password|token|secret|api_key)$/i.test(key)
+          ? '[REDACTED]'
+          : redact(item),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+
+    return clone;
+  }
+
+  return value;
+}

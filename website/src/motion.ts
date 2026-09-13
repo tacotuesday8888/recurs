@@ -1,3 +1,5 @@
+import { terminalLetterSvg } from "./letter.js";
+
 /** Decorative motion only: native scroll position and input events are untouched. */
 export function installPageMotion(onPause: () => void) {
   const root = document.documentElement;
@@ -5,6 +7,10 @@ export function installPageMotion(onPause: () => void) {
   const toggle = document.querySelector<HTMLButtonElement>("#motion-toggle")!;
   const progress = document.querySelector<HTMLElement>(".scroll-progress span")!;
   const ornament = document.querySelector<HTMLElement>(".brand-drift")!;
+  const letter = ornament.querySelector<SVGElement>("svg")!;
+  let idleFrame = 0;
+  let spinTimer = 0;
+  let brandInView = typeof IntersectionObserver === "undefined";
   let paused = false;
   try { paused = sessionStorage.getItem("recurs-motion-paused") === "true"; } catch { /* Storage can be unavailable in private contexts. */ }
   let keyboard = false;
@@ -15,9 +21,23 @@ export function installPageMotion(onPause: () => void) {
   const reveals = new Set<Animation>();
   const enabled = () => !paused && !preference.matches && !document.hidden;
   const target = () => Math.max(0, Math.min(1, scrollY / scrollRange));
+  const renderLetter = () => {
+    const phase = enabled() ? idleFrame + current * (Math.PI * 2 / 0.096) * 3 : 0;
+    letter.innerHTML = terminalLetterSvg(phase);
+    letter.dataset.frame = String(phase);
+  };
+  const syncSpin = () => {
+    clearInterval(spinTimer);
+    spinTimer = 0;
+    if (enabled() && brandInView) {
+      renderLetter();
+      // Same 80 ms frame cadence and 3D projection as the terminal opening.
+      spinTimer = window.setInterval(() => { idleFrame += 1; renderLetter(); }, 80);
+    }
+  };
   const paint = () => {
     progress.style.transform = `scaleX(${current})`;
-    ornament.style.transform = `rotate(${current * 1080}deg)`;
+    ornament.dataset.scrollPhase = String(current);
   };
   const stop = () => {
     cancelAnimationFrame(frame);
@@ -40,7 +60,7 @@ export function installPageMotion(onPause: () => void) {
   };
   const update = () => {
     if (!enabled()) return;
-    if (keyboard) { stop(); current = target(); paint(); }
+    if (keyboard) { stop(); current = target(); paint(); if (brandInView) renderLetter(); }
     else if (frame === 0) frame = requestAnimationFrame(animate);
   };
   const measure = () => { scrollRange = Math.max(1, document.documentElement.scrollHeight - innerHeight); update(); };
@@ -52,7 +72,8 @@ export function installPageMotion(onPause: () => void) {
     toggle.textContent = preference.matches ? "Motion off" : paused ? "Resume motion" : "Pause motion";
     toggle.setAttribute("aria-pressed", String(paused || preference.matches));
     if (enabled()) { current = target(); paint(); }
-    else { progress.style.transform = "scaleX(0)"; ornament.style.transform = "none"; onPause(); }
+    else { progress.style.transform = "scaleX(0)"; renderLetter(); onPause(); }
+    syncSpin();
   };
   toggle.addEventListener("click", () => {
     paused = !paused;
@@ -74,7 +95,9 @@ export function installPageMotion(onPause: () => void) {
   if (typeof ResizeObserver !== "undefined") new ResizeObserver(measure).observe(document.body);
   if (typeof IntersectionObserver !== "undefined") {
     new IntersectionObserver(([entry]) => {
-      root.classList.toggle("brand-in-view", entry?.isIntersecting ?? false);
+      brandInView = entry?.isIntersecting ?? false;
+      root.classList.toggle("brand-in-view", brandInView);
+      syncSpin();
     }).observe(ornament);
     const observer = new IntersectionObserver(entries => {
       for (const entry of entries) {
