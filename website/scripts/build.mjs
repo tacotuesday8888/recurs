@@ -30,11 +30,17 @@ for (const asset of ["recurs-mark.svg", "terminal-v19-working.svg", "terminal-di
   await cp(join(repository, "docs/assets", asset), join(output, "assets", asset));
 }
 
-const evidence = JSON.parse(await readFile(join(repository, "benchmarks/results.json"), "utf8"));
-const summary = summarizeEvidence(evidence).map((campaign) => ({
+const evidenceFiles = ["results.json", "current-results.json"];
+const sets = await Promise.all(evidenceFiles.map(async (file) =>
+  JSON.parse(await readFile(join(repository, "benchmarks", file), "utf8"))));
+const summary = sets.flatMap((evidence) => summarizeEvidence(evidence).map((campaign) => ({
   ...campaign,
+  evidenceKind: evidence.kind,
+  sourceRevision: evidence.selection.sourceRevision,
+  sourceState: evidence.selection.sourceState ?? "Historical Round 2",
+  artifactSha256: evidence.selection.executedArtifactSha256 ?? null,
   trials: evidence.campaigns.find((entry) => entry.campaign.id === campaign.id).trials,
-}));
+})));
 const { campaignName, context, resultRows, trialDetails, escapeHtml } = await import(new URL("../dist/evidence.js", import.meta.url));
 const initial = summary.findLast((campaign) => campaign.complete && campaign.arms.every((arm) => arm.parentMatched));
 if (!initial) throw new Error("A complete matched-parent campaign is required for the default view");
@@ -51,7 +57,7 @@ for (const [key, value] of Object.entries(replacements)) html = html.replaceAll(
 if (/\{\{[A-Z_]+\}\}/u.test(html)) throw new Error("Unresolved website template");
 await writeFile(join(output, "index.html"), html);
 await writeFile(join(output, "summary.json"), `${JSON.stringify(summary)}\n`);
-await cp(join(repository, "benchmarks/results.json"), join(output, "results.json"));
+for (const file of evidenceFiles) await cp(join(repository, "benchmarks", file), join(output, file));
 
 await writeFile(join(output, "404.html"), '<!doctype html><html lang="en"><meta charset="utf-8"><title>Page not found — Recurs</title><h1>Page not found</h1><a href="/">Back to Recurs</a></html>');
 await writeFile(join(output, ".nojekyll"), "");

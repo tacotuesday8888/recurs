@@ -5,6 +5,7 @@ import test from "node:test";
 import { summarizeEvidence, validateEvidence } from "./benchmark-evidence.mjs";
 
 const evidence = JSON.parse(await readFile(new URL("../benchmarks/results.json", import.meta.url), "utf8"));
+const fresh = JSON.parse(await readFile(new URL("../benchmarks/current-results.json", import.meta.url), "utf8"));
 const changed = (edit) => { const copy = structuredClone(evidence); edit(copy); return copy; };
 test("published evidence retains interrupted slots and unmatched-parent campaigns", () => {
   const summaries = summarizeEvidence(evidence);
@@ -43,7 +44,17 @@ test("unknown cost is never replaced by conservative charged allowance", () => {
   assert.equal(summarizeEvidence(copy)[0].arms[0].reportedCostUsd, null);
 });
 test("export contains no original local connection IDs, raw outputs or private paths", () => {
-  const serialized = JSON.stringify(evidence);
+  const serialized = JSON.stringify([evidence, fresh]);
   assert.doesNotMatch(serialized, /codex-[0-9a-f]{8}-|\/Users\/|\/home\/|api[_-]?key|access[_-]?token|refresh[_-]?token|rawOutput/iu);
   assert.ok(evidence.campaigns.every((entry) => /^[0-9a-f]{64}$/u.test(entry.sourceSha256)));
+});
+test("fresh probe uses the exact Luna parent for both arms and preserves the one-pair limit", () => {
+  const [campaign] = summarizeEvidence(fresh);
+  assert.equal(campaign.repetitions, 1);
+  assert.deepEqual(campaign.arms.map((arm) => arm.passed), [1, 1]);
+  assert.ok(campaign.arms.every((arm) => arm.parentMatched && arm.routes[0].modelId === "gpt-5.6-luna" && arm.routes[0].reasoningEffort === "medium"));
+  assert.deepEqual(campaign.arms.map((arm) => arm.medianWallClockMs), [90432, 229438]);
+  assert.deepEqual(campaign.arms.map((arm) => arm.inputTokens), [76674, 409620]);
+  assert.deepEqual(campaign.arms.map((arm) => arm.reportedCostUsd), [null, null]);
+  assert.equal(fresh.selection.executedArtifactSha256, "760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f");
 });

@@ -8,13 +8,15 @@ const root = new URL("../dist/", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
 const campaigns = JSON.parse(await readFile(new URL("summary.json", root), "utf8"));
 test("static first render includes actual results and all campaign choices", () => {
-  assert.match(html, /3 \/ 3/u);
-  assert.match(html, /108\.3 s/u);
-  assert.match(html, /1,291,111/u);
+  assert.match(html, /1 \/ 1/u);
+  assert.match(html, /90\.4 s/u);
+  assert.match(html, /409,620/u);
   assert.match(html, /Dollar cost is unavailable, not zero/u);
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/u);
-  assert.equal(campaigns.length, 4);
+  assert.equal(campaigns.length, 5);
   for (const campaign of campaigns) assert.ok(html.includes(campaignName(campaign)));
+  assert.match(html, /gpt-5\.6-luna/u);
+  assert.match(html, /760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f/u);
 });
 test("local asset links resolve and captures match repository sources byte for byte", async () => {
   for (const match of html.matchAll(/(?:src|href)="\.\/([^"#]+)"/gu)) await access(new URL(match[1], root));

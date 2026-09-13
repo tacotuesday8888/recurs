@@ -16,6 +16,7 @@ const routes = new Map([
   ["/evidence.js", ["evidence.js", "text/javascript; charset=utf-8"]],
   ["/summary.json", ["summary.json", "application/json"]],
   ["/results.json", ["results.json", "application/json"]],
+  ["/current-results.json", ["current-results.json", "application/json"]],
   ["/assets/recurs-mark.svg", ["assets/recurs-mark.svg", "image/svg+xml"]],
   ["/.nojekyll", [".nojekyll", "text/plain; charset=utf-8"]],
 ]);

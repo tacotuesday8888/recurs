@@ -1,15 +1,59 @@
 # Reproducible Recurs benchmarks
 
-The published evidence does **not** establish a team advantage. `results.json`
-is a sanitized export of real model-backed historical campaigns, not a fixture
-simulation and not a new run on the current release.
+The published evidence does **not** establish a team advantage. The two evidence
+sets are sanitized exports of real model-backed campaigns. `current-results.json`
+contains one fresh foreground pair; `results.json` preserves the full historical
+Round 2 inventory. Neither contains simulated model-quality results.
+
+## Fresh foreground probe (2026-09-13 UTC)
+
+One predeclared `retry_after` pair completed through the supported local
+foreground CLI and existing official Codex app-server login. Both arms used the
+exact same **gpt-5.6-luna / medium** parent route. The mixed team used Terra medium
+for Implement and Repair, and Luna medium for Review. The exact frozen routes
+are in `current-results.json`; names were verified from the campaign rather than
+assumed from the current account list.
+
+| Arm | Verified / planned | Time | Requests | Input (cached) | Output | Reported cost |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Luna medium, single agent | 1/1 | 90.432 s | 1 | 76,674 (59,136) | 3,628 | Unknown |
+| Luna parent + Terra Implement/Repair + Luna Review | 1/1 | 229.438 s | 5 | 409,620 (320,768) | 7,796 | Unknown |
+
+Both external verifiers passed all seven checks. The company completed one
+implementation, two reviews and one repair; the repair recovered the trial.
+The baseline had one confirmation callback, the company four; both recorded
+zero user-input requests. These callbacks are not a measurement of human effort.
+The campaign remained insufficient evidence (`minimum_comparable_pairs_not_met`
+and `usage_incomplete`; token reporting was complete but dollar cost was absent).
+One pair cannot establish quality, repair reliability, or a general efficiency
+advantage. No retries, credits purchases, policy changes or outcome exclusions
+were used.
+
+Provenance: source base `69c0fe5`, dirty `codex/product-workflows` candidate;
+executed `dist/cli/main.js` SHA-256
+`760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f`.
+The running bundle was unchanged during the campaign. Later source, terminal
+capture and website changes were **not tested by this campaign**. The dirty
+source state is not reconstructible from the base commit alone; the artifact
+hash identifies the executed candidate. The fixture protocol and measurement
+export can be reproduced independently of this historical candidate.
+
+Original foreground command:
+
+```sh
+recurs benchmark company --configured --allow-network \
+  --scenario retry_after --repetitions 1
+```
+
+Campaign: `company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48`.
+Selection and provenance: `current-selection.json`.
 
 ## Inspect the evidence without a provider
 
 ```sh
 npm ci
 npm run build
-node scripts/benchmark-evidence.mjs check
+npm run benchmark:check
 node --test scripts/benchmark-evidence.test.mjs
 npm --prefix website run check
 ```
@@ -22,10 +66,10 @@ workspace. Those limits remain distinct from schema and arithmetic validation.
 
 `selection.json` fixes the full four-campaign inventory from the
 [Round 2 report](../docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
-All 27 trial records and 30 slot settlements are retained, including failed
+All 27 historical trial records and 30 slot settlements are retained, including failed
 trials, unmatched-parent comparisons and the interrupted campaign. No run was
-excluded based on outcome. The default website table is the last complete
-matched-parent campaign in that inventory; other campaigns remain selectable.
+excluded based on outcome. The default website table is the fresh foreground
+pair; every historical campaign remains selectable without pooling harnesses.
 
 | Complete matched-parent campaign | Verified / planned | Median time | Total input | Total output |
 | --- | ---: | ---: | ---: | ---: |
@@ -71,6 +115,12 @@ subscription quota cap. Each runtime is additionally bounded by the saved
 operating-mode policy. Stop with Ctrl-C; retain failed/interrupted settlements
 and never rerun silently. Do not purchase credits or enable fallback billing.
 
+To repeat the fresh route lineup after account preferences change, pass explicit
+local IDs for `--connection` and `--parent-connection` (Luna medium),
+`--implement-connection` and `--repair-connection` (Terra medium), and
+`--review-connection` (Luna medium). Resolve IDs through `recurs account list`;
+never assume the primary model is Sol, Luna or any other model.
+
 For a predeclared larger study, use all three immutable fixtures
 (`alias_registry`, `layered_config`, `retry_after`), three repetitions each,
 and `--compare-all-strong` only when separately authorized. Alternate arm order
@@ -95,6 +145,9 @@ environment values, prompts or raw model output are read or published.
 ```sh
 node scripts/benchmark-evidence.mjs export
 # Or: node scripts/benchmark-evidence.mjs export --recurs-home /path/to/home
+node scripts/benchmark-evidence.mjs export \
+  --selection benchmarks/current-selection.json \
+  --results benchmarks/current-results.json
 ```
 
 The explicit selection controls what is exported. Local connection IDs become
@@ -104,7 +157,8 @@ it permits a local owner to compare a regenerated export, not public recovery
 of the private original. Fixture paths and bounded failure codes remain.
 Re-export is deterministic and performs no model or network request.
 
-This task could inspect the saved Sol/Terra/Luna connections but could not access
-a supported foreground Terminal surface: Computer Use denied the Terminal app.
-No scripted invocation was substituted and no fresh model-result claim is made.
-The website therefore labels this entire release of evidence historical.
+Computer Use denied access to the native Terminal app. The coordinated terminal
+task subsequently ran the explicit bounded benchmark through the supported
+foreground CLI tool with a PTY. No background runner, copied credentials or
+weakened provider policy was substituted. The fresh pair is kept separate from
+Round 2 and does not upgrade that study's conclusions.
