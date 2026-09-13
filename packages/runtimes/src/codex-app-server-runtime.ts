@@ -349,6 +349,15 @@ export class CodexAppServerRuntime implements AgentRuntime {
         resolveTerminal,
       );
     };
+    const onAbort = (): void => {
+      if (client !== null && threadId !== null && turnId !== null) {
+        void client.request("turn/interrupt", { threadId, turnId })
+          .catch(() => undefined);
+      }
+      // Vendor acknowledgement or a terminal notification is not guaranteed.
+      // Settle locally so the owned client's bounded shutdown always runs.
+      resolveTerminal({ status: "interrupted" });
+    };
 
     try {
       if (
@@ -463,15 +472,12 @@ export class CodexAppServerRuntime implements AgentRuntime {
         },
       });
       for (const message of pendingMessages.splice(0)) processMessage(message);
-      const onAbort = (): void => {
-        if (client !== null && threadId !== null && turnId !== null) {
-          void client.request("turn/interrupt", { threadId, turnId })
-            .catch(() => undefined);
-        }
-      };
       request.signal.addEventListener("abort", onAbort, { once: true });
+      if (request.signal.aborted) onAbort();
       const completed = await terminal;
-      request.signal.removeEventListener("abort", onAbort);
+      // Drain any available usage while closing only this run's app-server.
+      // Emit the terminal event afterward, so late usage cannot follow it.
+      await client.close();
       if (request.signal.aborted || completed.status === "interrupted") {
         queue.push({ type: "cancelled", reason: "Codex turn was interrupted" });
       } else if (completed.status === "failed") {
@@ -486,6 +492,7 @@ export class CodexAppServerRuntime implements AgentRuntime {
     } catch (error) {
       queue.push({ type: "failed", failure: mapFailure(error, phase) });
     } finally {
+      request.signal.removeEventListener("abort", onAbort);
       activeResolve();
       await client?.close();
     }

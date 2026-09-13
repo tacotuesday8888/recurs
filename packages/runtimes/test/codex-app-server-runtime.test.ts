@@ -209,6 +209,53 @@ describe("Codex app-server runtime", () => {
     expect(events.at(-1)).toMatchObject({ type: "cancelled" });
   });
 
+  for (const scenario of ["runtime-cancel-no-terminal", "runtime-cancel-no-ack"]) {
+    it(`bounds owned-process shutdown for ${scenario}`, async () => {
+      const controller = new AbortController();
+      const added = vi.spyOn(controller.signal, "addEventListener");
+      const removed = vi.spyOn(controller.signal, "removeEventListener");
+      const events = await collect(scenario, {}, request(controller.signal), fingerprint(), event => {
+        if (event.type === "activity" && event.activity.name === "codex_turn") controller.abort();
+      });
+      expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+      expect(events.some(event => event.type === "done")).toBe(false);
+      if (scenario === "runtime-cancel-no-terminal") {
+        expect(events).toContainEqual({
+          type: "usage",
+          usage: { inputTokens: 19, cachedInputTokens: 5, outputTokens: 7, reasoningTokens: 2 },
+        });
+      }
+      for (const [type, listener] of added.mock.calls) {
+        expect(removed.mock.calls.some(call => call[0] === type && call[1] === listener)).toBe(true);
+      }
+    }, 3_000);
+  }
+
+  it("retains usage but never completes when vendor completion races with cancellation", async () => {
+    const controller = new AbortController();
+    const events = await collect("runtime-cancel-completion-race", {}, request(controller.signal), fingerprint(), event => {
+      if (event.type === "activity" && event.activity.name === "codex_turn") controller.abort();
+    });
+    expect(events).toContainEqual({
+      type: "usage",
+      usage: { inputTokens: 19, cachedInputTokens: 5, outputTokens: 7, reasoningTokens: 2 },
+    });
+    expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+    expect(events.some(event => event.type === "done")).toBe(false);
+  });
+
+  it("cancelling one app-server leaves an independent run intact", async () => {
+    const controller = new AbortController();
+    const [cancelled, independent] = await Promise.all([
+      collect("runtime-cancel-no-terminal", {}, request(controller.signal), fingerprint(), event => {
+        if (event.type === "activity" && event.activity.name === "codex_turn") controller.abort();
+      }),
+      collect("runtime-text"),
+    ]);
+    expect(cancelled.at(-1)).toMatchObject({ type: "cancelled" });
+    expect(independent.at(-1)).toMatchObject({ type: "done", finalText: "hello from Codex" });
+  }, 3_000);
+
   it("fails before starting a thread when the account binding changes", async () => {
     const events = await collect(
       "runtime-text",
