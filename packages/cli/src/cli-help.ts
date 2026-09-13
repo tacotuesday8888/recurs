@@ -62,6 +62,10 @@ Usage:
   recurs run -
   recurs run <prompt> --stdin
 
+This command is scripted, even in a terminal. For Codex subscription chats,
+use the interactive CLI: start recurs -C <dir>, then enter your prompt.
+Headless runs require a connection that permits scripted use.
+
 Fresh runs create a new durable session. Resume retains the stored provider,
 working root, permissions, and operating mode; --continue resumes the newest
 durable parent session recorded for this working root the same way. JSON writes one terminal object;

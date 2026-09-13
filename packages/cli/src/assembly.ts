@@ -1892,7 +1892,7 @@ export async function createStandaloneRuntime(
         ) {
           throw policyBlocked(
             input.operationId,
-            "This Codex subscription connection is limited to local, user-present, manual CLI use",
+            "This Codex subscription connection is limited to local, user-present, manual CLI use. For chat, start recurs in your terminal, then enter your prompt; recurs run is scripted.",
           );
         }
         return {
