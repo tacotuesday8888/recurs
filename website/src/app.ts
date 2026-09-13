@@ -1,5 +1,7 @@
 import { campaignName, context, resultRows, pairedRows, trialDetails, type Campaign } from "./evidence.js";
 
+import { chartCampaigns, chartMetrics, renderChart, type ChartMetric } from "./charts.js";
+
 const capture = document.querySelector<HTMLImageElement>("#terminal-capture")!;
 const views = {
   working: { file: "terminal-patch.svg", alt: "Recurs terminal with collapsed progress, clickable activity and a boxed composer" },
@@ -99,6 +101,46 @@ async function loadEvidence() {
       select.setAttribute("aria-label", `Explore a campaign: ${campaignName(campaign)}`);
     });
     select.disabled = false;
+    const chartTask = document.querySelector<HTMLSelectElement>("#chart-task")!;
+    const chartMetric = document.querySelector<HTMLSelectElement>("#chart-metric")!;
+    const chart = document.querySelector<HTMLElement>("#benchmark-chart")!;
+    const updateChart = () => {
+      const campaign = chartCampaigns(campaigns).find(item => item.id === chartTask.value);
+      if (!campaign || !(chartMetric.value in chartMetrics)) return;
+      chart.innerHTML = renderChart(campaign, chartMetric.value as ChartMetric);
+    };
+    chartTask.disabled = false;
+    chartMetric.disabled = false;
+    chartTask.addEventListener("change", updateChart);
+    chartMetric.addEventListener("change", updateChart);
+    const inspect = (event: Event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (!point) return;
+      point.classList.remove("tooltip-dismissed");
+      chart.querySelector("#chart-inspection")!.textContent = point.dataset.chartDetail!;
+    };
+    chart.addEventListener("focusin", inspect);
+    chart.addEventListener("click", inspect);
+    chart.addEventListener("pointerdown", (event) => { chart.classList.toggle("chart-touch", event.pointerType === "touch"); });
+    chart.addEventListener("pointerover", (event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (point && !(event.relatedTarget instanceof Node && point.contains(event.relatedTarget))) inspect(event);
+    });
+    document.addEventListener("keydown", (event) => {
+      chart.classList.remove("chart-touch");
+      if (event.key === "Escape") chart.querySelectorAll(".chart-point").forEach(point => point.classList.add("tooltip-dismissed"));
+    });
+    chart.addEventListener("keydown", (event) => {
+      const point = (event.target as HTMLElement).closest<HTMLButtonElement>(".chart-point");
+      if (!point) return;
+      if (event.key === "Escape") point.classList.add("tooltip-dismissed");
+      if (["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"].includes(event.key)) {
+        event.preventDefault();
+        const points = [...chart.querySelectorAll<HTMLButtonElement>(".chart-point")];
+        const offset = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
+        points[(points.indexOf(point) + offset + points.length) % points.length]!.focus();
+      }
+    });
   } catch {
     select.disabled = true;
     document.querySelector("#campaign-context")!.append(" · Interactive data unavailable; the default result remains below.");

@@ -21,3 +21,16 @@ The footer action is Try Recurs. No simulated editable terminal or model activit
 Verify Chrome desktop/mobile rendering, video controls, keyboard switching,
 clipboard, all campaigns, reduced motion, no JavaScript and horizontal overflow.
 Keep the previous preview at port 4173; this revision uses .build and port 4174.
+
+Interactive chart plan: keep the terminal as the main visual. Add one compact
+comparison plot with native Task and Measure selectors, two arm rows and both
+individual trial marks. Use existing ink/orange identity, with labeled neutral
+hatching for cached input and invalid setups. No chart animation: selections and
+keyboard focus should update immediately. Retain all-task overview; collapse the
+existing detailed campaign selector and tables into Inspect trials.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Multiple exposed tables | One metric explorer, overview, then native disclosure | Makes the comparison usable without a wall of numbers. |
+| Medians alone in primary view | Both trial observations, zero-based common scales | Makes the tiny sample and runtime variation visible. |
+| Unknown dollar costs | Explicit unavailable state | No invented prices, savings or zero-cost claim. |

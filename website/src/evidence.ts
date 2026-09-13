@@ -8,9 +8,9 @@ export interface Arm {
 }
 export interface Trial {
   armId: string; repetition: number; executionStatus: string; wallClockMs: number;
-  verification: { status: string; checks: { id: string; status: string }[] };
+  verification: { status: string; workspaceIntegrity: string; checks: { id: string; status: string }[] };
   review: { finalVerdict: string | null };
-  usage: { inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null; requestsUsed: number };
+  usage: { inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null; requestsUsed: number; tokenCoverage: string; costCoverage: string; reportedCostUsd: number | null };
   roles: { role: string; attempts: number; wallClockMs: number; attemptLatenciesMs: number[]; usage: { inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null } }[];
   failures: { stage: string; code: string }[];
 }

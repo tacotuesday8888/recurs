@@ -48,6 +48,12 @@
         <p class="evidence-intro">The small option fix passed in both arms; the team used more time and input tokens. Both single-agent queue repairs passed; neither team attempt delivered a verified repair. The independent-work comparison had an invalid team setup. This pilot does not establish a team advantage.</p>
         {{PILOT_OVERVIEW}}
         <p class="context">The queue audit preserves every original outcome. Its corrected listener check changes no trial result. A corrected four-slot independent-work campaign is predeclared but has not run; it is awaiting authorization. <a href="./task-fit-results.md">Read the findings and limitations</a>.</p>
+        <section class="chart-explorer" aria-label="Explore benchmark tradeoffs">
+          <p class="chart-scope">Both configurations run inside Recurs: one agent or a mixed-model team.</p>
+          <div class="chart-controls"><label>Task<select id="chart-task" disabled>{{CHART_TASK_OPTIONS}}</select></label><label>Measure<select id="chart-metric" disabled>{{CHART_METRIC_OPTIONS}}</select></label></div>
+          <div id="benchmark-chart">{{CHART}}</div>
+        </section>
+        <details class="inspect-trials"><summary>Inspect trials <span aria-hidden="true">＋</span></summary><div class="inspect-content">
         <div class="experiment-controls"><label for="campaign">Select a benchmark</label><select id="campaign" disabled>{{CAMPAIGN_OPTIONS}}</select></div>
         <p id="campaign-context" class="context">{{CAMPAIGN_CONTEXT}}</p>
         <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results, scroll horizontally on small screens">
@@ -56,6 +62,7 @@
         <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. The pilot alternates arm order. Invalid setup times are retained for audit and are not comparable task-completion times. Dollar cost is unavailable, not zero.</p>
         <details class="paired-trials"><summary>Every paired observation <span aria-hidden="true">＋</span></summary><div class="table-scroll" tabindex="0" role="region" aria-label="Paired trial observations"><table><thead><tr><th>Repetition</th><th>Configuration</th><th>Outcome</th><th>Time</th><th>Uncached input</th><th>Cached input</th><th>Output</th></tr></thead><tbody id="paired-body">{{PAIRED_ROWS}}</tbody></table></div></details>
         <details><summary>Routes, interventions, and trial-level checks <span aria-hidden="true">＋</span></summary><div id="trial-details">{{TRIAL_DETAILS}}</div></details>
+        </div></details>
         <div class="method-grid">
           <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
           <div><h3>Small sample. Real limits.</h3><p>The pilot has two repetitions per arm across three synthetic tasks. It enforces a parent-only baseline. Two team setups were invalid; a separate offline queue-verifier amendment changed no measured outcome. Earlier probes remain separate, with their original delegation and provenance limits.</p></div>

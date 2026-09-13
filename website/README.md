@@ -41,3 +41,11 @@ repository. No deployment is implied by a local preview.
 The pilot includes explicit invalid-setup labels, every final candidate as a
 sanitized repository artifact, and a separate offline queue-verifier audit.
 The predeclared corrected independent campaign remains visibly unrun.
+
+The interactive pilot chart shows both original observations for each arm.
+Measures are whole-trial runtime, externally verified completion, token parts
+(uncached input + cached input + output), review/repair invocations, and actual
+reported dollars when available. Both configurations run inside Recurs. Invalid
+setups retain their measured labels but never receive comparison bars. Focus,
+arrow keys, hover and touch expose exact outcome details; Escape dismisses a
+tooltip. Chart changes do not animate. Detailed tables remain in Inspect trials.

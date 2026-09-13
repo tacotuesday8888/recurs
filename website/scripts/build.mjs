@@ -48,7 +48,11 @@ const packageInfo = JSON.parse(await readFile(join(repository, "package.json"), 
 const captureSource = await readFile(join(output, "assets/terminal-patch.svg"), "utf8");
 const captureSize = /<svg\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"/u.exec(captureSource);
 if (!captureSize) throw new Error("Terminal capture dimensions unavailable");
+const { chartMetrics, chartCampaigns, chartTaskName, renderChart } = await import(new URL("../.build/charts.js", import.meta.url));
 const replacements = {
+  CHART_TASK_OPTIONS: chartCampaigns(summary).map(campaign => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(chartTaskName(campaign))}</option>`).join(""),
+  CHART_METRIC_OPTIONS: Object.entries(chartMetrics).map(([value, label]) => `<option value="${value}">${label}</option>`).join(""),
+  CHART: renderChart(initial, "runtime"),
   CAMPAIGN_OPTIONS: summary.map((campaign) => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(campaignName(campaign))}</option>`).join(""),
   CAMPAIGN_CONTEXT: escapeHtml(context(initial)),
   RESULT_ROWS: resultRows(initial),
