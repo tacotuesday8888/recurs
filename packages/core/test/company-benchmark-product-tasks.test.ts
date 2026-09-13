@@ -110,6 +110,40 @@ describe("fresh product task fixtures and hidden checks", () => {
     });
   }
 
+  it("accepts fresh frozen cart records without requiring mutable outputs", async () => {
+    const good = reference("shipment_quote");
+    const candidate = {
+      ...good,
+      "src/cart.js": good["src/cart.js"]!.replace("return [...lines.values()];", "return Object.freeze([...lines.values()].map(line => Object.freeze(line)));")
+    };
+    expect(candidate["src/cart.js"]).not.toEqual(good["src/cart.js"]);
+    expect(failed(await evaluate(spec("shipment_quote"), candidate, true))).toEqual([]);
+  });
+
+  it("supplies complete unique normalized records to shape-validating priceCart implementations", async () => {
+    const good = reference("shipment_quote");
+    const validation = `
+  const skus = new Set();
+  for (const line of lines) {
+    if (Object.keys(line).sort().join(',') !== 'grams,quantity,sku,unitCents' || typeof line.sku !== 'string' || !line.sku || skus.has(line.sku) || !Number.isInteger(line.quantity) || line.quantity < 1 || !Number.isInteger(line.unitCents) || line.unitCents < 0 || !Number.isInteger(line.grams) || line.grams < 1) throw new TypeError('normalized line');
+    skus.add(line.sku);
+  }
+  const subtotalCents =`;
+    const candidate = { ...good, "src/pricing.js": good["src/pricing.js"]!.replace("const subtotalCents =", validation) };
+    expect(candidate["src/pricing.js"]).not.toEqual(good["src/pricing.js"]);
+    expect(failed(await evaluate(spec("shipment_quote"), candidate, true))).toEqual([]);
+  });
+
+  it("requires checker acceptance of conforming frozen scheduler results", async () => {
+    const good = reference("release_window_regressions");
+    const source = good["checks/release-contract.js"]!;
+    const bad = { ...good, "checks/release-contract.js": source.replace("assert.notEqual(selected,input[1]);", "assert.notEqual(selected,input[1]); selected.id = 'changed';") };
+    expect(bad["checks/release-contract.js"]).not.toEqual(source);
+    // The output-mutating checker accepts the mutable public fixture but fails
+    // every good-API gate on the independently conforming frozen implementation.
+    expect(failed(await evaluate(spec("release_window_regressions"), bad, true))).toHaveLength(4);
+  });
+
   const shipmentMutations = [
     ["merged inventory bypass", "src/cart.js", "if (quantity > product.stock)", "if (item.quantity > product.stock)", "hidden_shipment_validation"],
     ["inherited SKU acceptance", "src/cart.js", "!Object.hasOwn(catalog,item.sku)", "!(item.sku in catalog)", "hidden_shipment_validation"],

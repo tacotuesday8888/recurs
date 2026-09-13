@@ -36,7 +36,8 @@ Acceptance requirements:
   an integer in [0,10000], otherwise TypeError. Compute subtotalCents as the sum
   of quantity * unitCents. Apply ONE discount to the whole subtotal, rounding
   DOWN: discountCents = floor(subtotalCents * discountBps / 10000). Return exactly
-  {subtotalCents, discountCents, merchandiseCents}. Free items are allowed.
+  {subtotalCents, discountCents, merchandiseCents}, where merchandiseCents is
+  subtotalCents minus discountCents. Free items are allowed.
 - deliveryCost(totalGrams, merchandiseCents, zone) takes integer totalGrams in
   [0,10000000000], integer merchandiseCents in [0,100000000000], and zone equal
   to local or remote. Invalid arguments throw TypeError, including unknown
@@ -115,8 +116,8 @@ Checker contract:
 - Test only the supplied api through documented behavior, with your own valid
   inputs. Do not import the fixture implementation as an oracle, inspect source,
   function names/descriptors, process/environment/filesystem, or grader metadata,
-  and do not change globals or supplied functions. Use only Node assertion
-  built-ins; no dependencies, network, subprocesses or additional files.
+  and do not change globals or supplied functions. For imports, use only Node
+  assertion built-ins; no dependencies, network, subprocesses or additional files.
 - The checker may be called repeatedly against different conforming or faulty
   APIs. Keep calls independent: do not rely on call order, persistent counters,
   implementation identity, or hidden case labels. All inputs are yours to create.
@@ -145,12 +146,13 @@ const releaseSource = `export function selectRelease(windows, nowMs) {
 // Every supplied function has the same name, source, descriptors and public shape.
 // Behavioral mutations are closed over, not published as source in the fixture.
 const releaseApiFactory = `
-      function makeApi(mode) {
+      function makeApi(mode, freezeOutput = false) {
         const implementation = (windows, nowMs) => {
           const eligible = windows.filter(w => (mode === 2 || !w.paused) && w.startMs <= nowMs && (mode === 1 ? nowMs <= w.endMs : nowMs < w.endMs));
           eligible.sort((a,b) => (mode === 3 ? a.priority-b.priority : b.priority-a.priority) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
           const w = eligible[0];
-          return w ? {id:w.id,startMs:w.startMs,endMs:w.endMs,priority:w.priority} : null;
+          const result = w ? {id:w.id,startMs:w.startMs,endMs:w.endMs,priority:w.priority} : null;
+          return result && freezeOutput ? Object.freeze(result) : result;
         };
         return Object.freeze({selectRelease:function selectRelease(windows, nowMs) { return implementation(windows, nowMs); }});
       }
@@ -206,7 +208,8 @@ test('empty quote has no charge', () => {
       const result = n(items,catalog);
       deepEqual(result,[{sku:'b',quantity:5,unitCents:37,grams:30},{sku:'a',quantity:1,unitCents:0,grams:1}]);
       equal(JSON.stringify([items,catalog]),before);
-      result[0].quantity = 1; equal(items[0].quantity,2);
+      equal(result[0] === items[0],false);
+      equal(result[0] === catalog.b,false);
       deepEqual(n([],catalog),[]);
       const special = JSON.parse('{"__proto__":{"unitCents":2,"grams":1,"stock":2}}');
       equal(n([{sku:'__proto__',quantity:1}],special)[0].unitCents,2);
@@ -227,10 +230,11 @@ test('empty quote has no charge', () => {
     ['hidden_shipment_rates', async () => {
       const { priceCart: p } = await load('src/pricing.js');
       const { deliveryCost: d } = await load('src/delivery.js');
-      deepEqual(p([{quantity:1,unitCents:101},{quantity:1,unitCents:101}],100),{subtotalCents:202,discountCents:2,merchandiseCents:200});
-      deepEqual(p([{quantity:1,unitCents:101},{quantity:1,unitCents:101}],5000),{subtotalCents:202,discountCents:101,merchandiseCents:101});
-      deepEqual(p([{quantity:3,unitCents:333}],3333),{subtotalCents:999,discountCents:332,merchandiseCents:667});
-      equal(p([{quantity:1,unitCents:9}],10000).merchandiseCents,0);
+      const lines = Object.freeze([Object.freeze({sku:'a',quantity:1,unitCents:101,grams:1}),Object.freeze({sku:'b',quantity:1,unitCents:101,grams:1})]);
+      deepEqual(p(lines,100),{subtotalCents:202,discountCents:2,merchandiseCents:200});
+      deepEqual(p(lines,5000),{subtotalCents:202,discountCents:101,merchandiseCents:101});
+      deepEqual(p([{sku:'c',quantity:3,unitCents:333,grams:1}],3333),{subtotalCents:999,discountCents:332,merchandiseCents:667});
+      equal(p([{sku:'d',quantity:1,unitCents:9,grams:1}],10000).merchandiseCents,0);
       for (const bps of [-1,10001,0.5,'100',NaN]) throws(() => p([],bps),TypeError);
       for (const grams of [1,999,1000,1001,2000,2001]) {
         equal(d(grams,4999,'local'),500+200*Math.ceil(grams/1000));
@@ -354,6 +358,7 @@ test('checker accepts the working release scheduler on repeated invocations', as
       ${releaseApiFactory}
       await check(makeApi(0));
       await check(makeApi(0));
+      await check(makeApi(0, true));
       ${mode === 0 ? "" : `let rejected = false;
       try { await check(makeApi(${mode})); } catch (error) { rejected = error instanceof Error; }
       equal(rejected, true);`}

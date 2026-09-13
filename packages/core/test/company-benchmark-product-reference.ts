@@ -88,7 +88,6 @@ export async function checkReleaseWindow(api) {
   const selected = api.selectRelease(input,15);
   assert.equal(JSON.stringify(input),before);
   assert.notEqual(selected,input[1]);
-  selected.id = 'changed';
   assert.equal(input[1].id,'a');
 }
 `,
