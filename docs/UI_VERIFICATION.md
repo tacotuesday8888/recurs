@@ -80,3 +80,48 @@ scope and changed-file pickers. `/files` opens a numbered source viewer; `/mcp`
 opens server actions. `/effort` and F4 select live supported Codex effort levels
 through a new immutable chat configuration. Reconnection retains saved choices.
 GitHub captures contain the rendered terminal cells without editorial captions.
+
+## September 13 review and composer pass
+
+The prompt has a complete orange frame and a subtle surface tint. Wrapping,
+Unicode input, cursor placement, history, and completion stay with the existing
+editor. Setup, chat, and team entry use the same composer. The parent glyph now
+keeps its hierarchy level while activity animates.
+
+Chat keeps code collapsed by default. `Ctrl+O` expands code blocks and patch
+details without changing the stored transcript or draft. Tool rows use readable
+labels and action glyphs; task lists remain visible. Underlined files open the
+recorded read range or applied patch. The changes summary above the composer
+opens all observed patches from this turn. Mouse tracking is released outside
+chat and when exiting or attaching a process; the wheel scrolls the transcript. The README animation records actual PTY frames
+at 100 ms intervals through approval, completion, expand, and collapse.
+
+Explicit review opens with file names, syntax-colored source, line-number gutters, and
+shaded additions/removals. `R` reveals patch metadata. `N`/`P` move between
+files; changing review mode keeps the current file. The last short file can open
+at its heading without being pulled back into the previous file.
+
+The captured parser example now fixes comma-separated input handling. The
+installed walkthrough checks spaces, empty input, empty entries, and Unicode
+against the resulting file. It remains a deterministic UI fixture, not a model
+benchmark. Captures are rendered from the installed terminal; no interface is
+drawn separately for the README.
+
+Website design references were installed at pinned revisions:
+
+- [Anthropic frontend design](https://github.com/anthropics/skills/tree/34040c9c568585f6929bedeaad110ad08f079624/skills/frontend-design)
+- [Emil Kowalski design engineering](https://github.com/emilkowalski/skills/tree/d23d7f88a2e21c9e4b1418c7abe420f5c1052ba7/skills/emil-design-eng)
+
+The website/benchmark task owns their application and browser verification.
+Benchmark results must retain failed runs and the small-task negative control;
+new measurements cannot be presented as a general efficiency advantage.
+
+Verification for this pass: the integrated suite passed 192 files / 2,434 tests
+with four existing platform skips, plus generated files, lint, types, build,
+package, benchmark-export and website checks. Later compact-transcript changes
+received focused terminal regression checks and the installed walkthrough.
+The walkthrough also checks mouse opening of read/edit/summary snapshots and
+returning with the draft intact. Installed Skills/MCP/company onboarding passed.
+A local 600-file review diagnostic measured 149 ms for construction plus first
+render and 0.090 ms mean cached scrolling across 500 frames; these are local
+rendering diagnostics, not model benchmark results.

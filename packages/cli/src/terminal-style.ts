@@ -28,6 +28,8 @@ export interface TerminalTheme {
   setAppearance(appearance: TerminalAppearance): void;
   frame(text: string): string;
   code(text: string): string;
+  input(text: string): string;
+  change(text: string, kind: "add" | "remove"): string;
   accent(text: string): string;
   brand(text: string, index: number): string;
   companyLayer(depth: 0 | 1 | 2 | 3, text: string): string;
@@ -101,6 +103,24 @@ export function createTerminalTheme(
       return `${base}${text.replaceAll(RESET, `${RESET}${base}`)}${RESET}`;
     },
     code: (text: string) => style("code", 96, text),
+    input: (text: string) => {
+      if (!colorEnabled) return text;
+      const background = color("background");
+      const tint = color("accent");
+      if (!background || !tint) return text;
+      const mixed = "#" + [1, 3, 5].map((offset) => Math.round(Number.parseInt(background.slice(offset, offset + 2), 16) * .92 + Number.parseInt(tint.slice(offset, offset + 2), 16) * .08).toString(16).padStart(2, "0")).join("");
+      const base = rgbSequence(mixed, true);
+      return `${base}${text.replaceAll(RESET, `${RESET}${base}`)}${RESET}`;
+    },
+    change: (text: string, kind: "add" | "remove") => {
+      if (!colorEnabled) return text;
+      const background = color("background");
+      const tint = color(kind === "add" ? "success" : "failure");
+      if (!background || !tint) return text;
+      const mixed = "#" + [1, 3, 5].map((offset) => Math.round(Number.parseInt(background.slice(offset, offset + 2), 16) * .88 + Number.parseInt(tint.slice(offset, offset + 2), 16) * .12).toString(16).padStart(2, "0")).join("");
+      const base = rgbSequence(mixed, true);
+      return `${base}${text.replaceAll(RESET, `${RESET}${base}`)}${RESET}`;
+    },
     accent: (text: string) => style("accent", 96, text),
     brand: (text: string, index: number) =>
       appearance.theme !== "system" ? style("accent", 96, text) : ansi256(

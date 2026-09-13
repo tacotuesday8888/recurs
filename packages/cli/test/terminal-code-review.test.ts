@@ -11,6 +11,35 @@ const plain = (rows: readonly string[]) => stripVTControlCharacters(rows.join("\
 const patch = "diff --git a/parser.ts b/parser.ts\n--- a/parser.ts\n+++ b/parser.ts\n@@ -1,2 +1,3 @@\n-oldValue\n+newValue\n+anotherValue\n context\n";
 
 describe("terminal code review", () => {
+  it("shows file names and code by default, with raw metadata on demand", () => {
+    const viewer = new TerminalDiffViewer(patch, { theme, rows: () => 24, back() {}, refresh() {} });
+    const clean = plain(viewer.render(100));
+    expect(clean).toContain("parser.ts");
+    expect(clean).not.toContain("diff --git");
+    expect(clean).not.toContain("@@");
+    expect(clean).toContain("newValue");
+    viewer.handleInput("r");
+    expect(plain(viewer.render(100))).toContain("diff --git a/parser.ts b/parser.ts");
+    viewer.handleInput("r");
+    expect(plain(viewer.render(100))).not.toContain("diff --git");
+  });
+  it("opens the last short file at its heading and keeps it selected across modes", () => {
+    const second = patch.replaceAll("parser.ts", "second.ts");
+    const viewer = new TerminalDiffViewer(patch + second, { theme, rows: () => 24, back() {}, refresh() {} });
+    viewer.render(100);
+    viewer.handleInput("n");
+    expect(plain(viewer.render(100))).toContain("second.ts");
+    expect(plain(viewer.render(100))).not.toContain("parser.ts");
+    viewer.handleInput("2");
+    expect(plain(viewer.render(100))).toContain("second.ts");
+    expect(plain(viewer.render(100))).not.toContain("parser.ts");
+    viewer.handleInput("p");
+    expect(plain(viewer.render(100))).toContain("parser.ts");
+  });
+  it("preserves an actual a/ directory when showing renamed files", () => {
+    const viewer = new TerminalDiffViewer("diff --git a/old.ts b/a/new.ts\nsimilarity index 100%\nrename from old.ts\nrename to a/new.ts\n", { theme, rows: () => 12, back() {}, refresh() {} });
+    expect(plain(viewer.render(100))).toContain("a/new.ts");
+  });
   it("colors TypeScript tokens without changing source text", () => {
     const code = '// comment\nconst answer = "hello";\nreturn 42;';
     const colored = highlightTerminalCode(code, "ts", theme);
