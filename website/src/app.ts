@@ -1,3 +1,4 @@
+import { installPageMotion } from "./motion.js";
 import { campaignName, context, resultRows, pairedRows, trialDetails, type Campaign } from "./evidence.js";
 
 import { chartCampaigns, chartMetrics, renderChart, type ChartMetric } from "./charts.js";
@@ -147,3 +148,5 @@ async function loadEvidence() {
   }
 }
 void loadEvidence();
+
+installPageMotion(() => { showPoster(); recordingControl.textContent = "Play recording"; });

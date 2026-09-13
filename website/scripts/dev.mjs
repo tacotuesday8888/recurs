@@ -15,6 +15,7 @@ const routes = new Map([
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/evidence.js", ["evidence.js", "text/javascript; charset=utf-8"]],
   ["/charts.js", ["charts.js", "text/javascript; charset=utf-8"]],
+  ["/motion.js", ["motion.js", "text/javascript; charset=utf-8"]],
   ["/task-fit-protocol.md", ["task-fit-protocol.md", "text/plain; charset=utf-8"]],
   ["/summary.json", ["summary.json", "application/json"]],
   ["/results.json", ["results.json", "application/json"]],

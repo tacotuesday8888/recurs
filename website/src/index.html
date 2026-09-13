@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#faf8f5">
+  <meta name="theme-color" content="#191714">
   <meta name="description" content="Recurs is an open-source coding-agent CLI. Choose your models, bound the team, and inspect its work. Explore the terminal and reproducible benchmark evidence.">
   <title>Recurs — coding-agent teams you control</title>
   <link rel="icon" href="./assets/recurs-mark.svg" type="image/svg+xml">
@@ -11,10 +11,11 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
+  <div class="scroll-progress" aria-hidden="true"><span></span></div>
   <a class="skip" href="#main">Skip to content</a>
   <header class="wrap">
-    <a class="brand" href="#" aria-label="Recurs home"><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""><span class="badge">alpha</span></a>
-    <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="#evidence">Benchmarks</a><a href="https://github.com/tacotuesday8888/recurs">GitHub</a></nav>
+    <a class="brand" href="#" aria-label="Recurs home"><span class="brand-drift" aria-hidden="true"><svg class="brand-spin" viewBox="0 0 48 48"><path d="M8 18V8h10M30 8h10v10M40 30v10H30M18 40H8V30"/><path class="orbit-inner" d="M18 18h12v12H18z"/></svg></span><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""></a>
+    <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="#evidence">Benchmarks</a><a href="https://github.com/tacotuesday8888/recurs">GitHub</a><button id="motion-toggle" type="button" aria-pressed="false" hidden>Pause motion</button></nav>
   </header>
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
@@ -34,7 +35,7 @@
         <button type="button" id="recording-control" class="recording-control" aria-controls="workflow-recording" hidden>Play recording</button>
         <a class="open-recording" href="./assets/terminal-workflow.mp4" target="_blank" rel="noopener">Open recording</a>
       </div>
-      <div class="terminal-stage"><div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-patch.svg" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" alt="Recurs terminal with collapsed progress, clickable activity and a boxed composer"><video id="workflow-recording" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" muted playsinline preload="metadata" poster="./assets/terminal-patch.svg" aria-label="Recorded Recurs workflow: inspect a read, open an edit, and return to collapsed progress" hidden><source src="./assets/terminal-workflow.mp4" type="video/mp4"></video></div></div>
+      <div class="terminal-stage" data-scroll-reveal><div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-patch.svg" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" alt="Recurs terminal with collapsed progress, clickable activity and a boxed composer"><video id="workflow-recording" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" muted playsinline preload="metadata" poster="./assets/terminal-patch.svg" aria-label="Recorded Recurs workflow: inspect a read, open an edit, and return to collapsed progress" hidden><source src="./assets/terminal-workflow.mp4" type="video/mp4"></video></div></div>
       <noscript><p>Install Recurs to explore the full workflow. This capture remains available without JavaScript.</p></noscript>
     </section>
     <section class="wrap workflow" aria-label="How you control the team">
