@@ -126,3 +126,11 @@ it("bounds parsing of malformed quoted Git paths with repeated escapes", () => {
   const viewer = new TerminalDiffViewer(input, { theme, rows: () => 10, back() {}, refresh() {} });
   expect(viewer.render(80).every((row) => visibleWidth(row) <= 80)).toBe(true);
 });
+
+it("keeps the missing-newline marker visible when Git metadata is collapsed", () => {
+  const input = "diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n";
+  const viewer = new TerminalDiffViewer(input, { theme, rows: () => 12, back() {}, refresh() {} });
+  const output = plain(viewer.render(100));
+  expect(output).toContain("\\ No newline at end of file");
+  expect(output).not.toContain("diff --git");
+});
