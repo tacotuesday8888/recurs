@@ -76,7 +76,7 @@ function reviewFiles(lines: readonly DiffLine[]): ReviewFile[] {
       current = { path: "Changes", oldPath: null, lines: [], added: 0, removed: 0 };
       files.push(current); sourceHeader = false;
       if (startsFile) {
-        const match = / ("b\/(?:\\.|[^"])*"|b\/.*)$/u.exec(line.text);
+        const match = / ("b\/(?:\\.|[^"\\])*"|b\/.*)$/u.exec(line.text);
         if (match) current.path = gitPath(match[1]!);
       }
     }
