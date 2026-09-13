@@ -58,7 +58,9 @@ const captureSize = /<svg\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"/u.exec(capt
 if (!captureSize) throw new Error("Terminal capture dimensions unavailable");
 const { chartMetrics, chartCampaigns, chartTaskName, renderChart } = await import(new URL("../.build/charts.js", import.meta.url));
 const { terminalLetterSvg } = await import(new URL("../.build/letter.js", import.meta.url));
+const { taskResults } = await import(new URL("../.build/results.js", import.meta.url));
 const replacements = {
+  TASK_RESULTS: taskResults(summary),
   TERMINAL_R: terminalLetterSvg(),
   CHART_TASK_OPTIONS: chartCampaigns(summary).map(campaign => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(chartTaskName(campaign))}</option>`).join(""),
   CHART_METRIC_OPTIONS: Object.entries(chartMetrics).map(([value, label]) => `<option value="${value}">${label}</option>`).join(""),
