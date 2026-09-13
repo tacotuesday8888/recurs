@@ -1,5 +1,9 @@
 # Reproducible Recurs benchmarks
 
+The [direct Codex comparison](direct-comparison/README.md) now has a fixed task
+inventory, offline graders, and a bounded foreground runner. It is prepared but
+has **no model results yet**. It does not replace or relabel the evidence below.
+
 The published evidence does **not** establish a team advantage. The four evidence
 sets are sanitized exports of real model-backed campaigns. `task-fit-results.json`
 retains all twelve original pilot slots, including two invalid team setups.

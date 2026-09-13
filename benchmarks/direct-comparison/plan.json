@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "name": "Issue Desk: authored coding tasks",
+  "status": "prepared_not_run",
+  "source": "Recurs-authored fixtures; not a public benchmark or full-project sample",
+  "tasks": [
+    {
+      "id": "fix-issues",
+      "label": "Fix reported bugs",
+      "prompt": "Work only in this fixture. Use no network or external packages. Preserve documented behavior. Do not edit package.json or existing tests. Put new implementation tests in new test/*.test.mjs files. Run tests before finishing. Customers report that closing an issue can affect another tenant, following a page cursor repeats an issue, and private fields appear in responses. Fix the service, add regression tests, and briefly explain the fixes. Do not change the public API.",
+      "fixtureSha256": "9dae0e4307d96622cf061c7c5ce21f50cd0b04603329bb3c89e9646f77c72413"
+    },
+    {
+      "id": "build-bulk-close",
+      "label": "Build a feature",
+      "prompt": "Work only in this fixture. Use no network or external packages. Preserve documented behavior. Do not edit package.json or existing tests. Put new implementation tests in new test/*.test.mjs files. Run tests before finishing. Add closeMany(tenant, ids) to the issue service, with tests and README documentation. Accept 1–100 unique nonempty string IDs. Reject any other input with code INVALID_IDS. If any ID is absent or belongs to another tenant, throw NOT_FOUND and change nothing. Otherwise close every requested issue, returning detached public records in request order. Already-closed issues are allowed. Keep list, get and close working.",
+      "fixtureSha256": "96a892848fa5f928ba54053fef0c9e036b231e6ad0855f21efce8b3b800a2053"
+    },
+    {
+      "id": "catch-regressions",
+      "label": "Catch hidden bugs",
+      "prompt": "Work only in this fixture. Use no network or external packages. Preserve documented behavior. Do not edit package.json or existing tests. Put new implementation tests in new test/*.test.mjs files. Run tests before finishing. Audit this service against its README and write behavioral regression tests in review.test.mjs at the project root. This is a test-writing task: do not change src, README or existing tests. Your tests must use node:test, import ./src/service.mjs, and exercise the public API; do not inspect source text, filenames, environment, or grader files. The tests will also run against repaired code: correct behavior must pass. Focus on tenant isolation, cursor pagination, and private-field redaction. Describe any bugs you find in your final response.",
+      "fixtureSha256": "9dae0e4307d96622cf061c7c5ce21f50cd0b04603329bb3c89e9646f77c72413"
+    }
+  ],
+  "slots": [
+    {
+      "id": "fix-issues-1-codex",
+      "taskId": "fix-issues",
+      "repetition": 1,
+      "arm": "codex"
+    },
+    {
+      "id": "fix-issues-1-recurs",
+      "taskId": "fix-issues",
+      "repetition": 1,
+      "arm": "recurs"
+    },
+    {
+      "id": "fix-issues-2-recurs",
+      "taskId": "fix-issues",
+      "repetition": 2,
+      "arm": "recurs"
+    },
+    {
+      "id": "fix-issues-2-codex",
+      "taskId": "fix-issues",
+      "repetition": 2,
+      "arm": "codex"
+    },
+    {
+      "id": "build-bulk-close-1-codex",
+      "taskId": "build-bulk-close",
+      "repetition": 1,
+      "arm": "codex"
+    },
+    {
+      "id": "build-bulk-close-1-recurs",
+      "taskId": "build-bulk-close",
+      "repetition": 1,
+      "arm": "recurs"
+    },
+    {
+      "id": "build-bulk-close-2-recurs",
+      "taskId": "build-bulk-close",
+      "repetition": 2,
+      "arm": "recurs"
+    },
+    {
+      "id": "build-bulk-close-2-codex",
+      "taskId": "build-bulk-close",
+      "repetition": 2,
+      "arm": "codex"
+    },
+    {
+      "id": "catch-regressions-1-codex",
+      "taskId": "catch-regressions",
+      "repetition": 1,
+      "arm": "codex"
+    },
+    {
+      "id": "catch-regressions-1-recurs",
+      "taskId": "catch-regressions",
+      "repetition": 1,
+      "arm": "recurs"
+    },
+    {
+      "id": "catch-regressions-2-recurs",
+      "taskId": "catch-regressions",
+      "repetition": 2,
+      "arm": "recurs"
+    },
+    {
+      "id": "catch-regressions-2-codex",
+      "taskId": "catch-regressions",
+      "repetition": 2,
+      "arm": "codex"
+    }
+  ],
+  "limits": {
+    "repetitions": 2,
+    "slots": 12,
+    "trialWallSeconds": 300,
+    "campaignWallSeconds": 3600
+  },
+  "metrics": [
+    "tasks_finished",
+    "seeded_bugs_caught",
+    "wall_seconds",
+    "reported_input_tokens",
+    "reported_cached_input_tokens",
+    "reported_output_tokens",
+    "reported_cost_usd"
+  ],
+  "unknownCost": null,
+  "reviewRequired": "Inspect candidate diffs and regression tests before publishing any outcome. No automatic superiority claim."
+}
