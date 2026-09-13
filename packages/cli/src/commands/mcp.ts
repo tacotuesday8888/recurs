@@ -34,13 +34,13 @@ function renderCatalog(catalog: McpServerCatalog, id?: string): string {
       ...(server.capabilities ? [`  Capabilities: ${server.capabilities.join(", ") || "none"}`] : []),
       ...(server.authentication ? [`  Authentication: ${server.authentication}`] : []),
     ].join("\n")),
-    `User config: ${snapshot.configPath}`,
+    ...(id === undefined ? [] : [`User config: ${snapshot.configPath}`,
     `Project config: ${snapshot.projectConfigPath ?? ".recurs/mcp-servers.json (not found)"}`,
     `Project trust: ${snapshot.projectTrust}`,
     ...(snapshot.projectTrust === "untrusted" || snapshot.projectTrust === "stale"
       ? ["Inspect the definitions, then /mcp trust-project to trust this exact configuration."] : []),
     "User IDs take precedence: a collision disables the project configuration until renamed.",
-    "MCP calls use normal permissions. Stdio processes close with Recurs; tool calls are never blindly retried.",
+    "MCP calls use normal permissions. Stdio processes close with Recurs; tool calls are never blindly retried."]),
     ...snapshot.warnings.map((warning) => `Warning: ${warning}`),
   ].join("\n");
 }
@@ -51,7 +51,24 @@ export function createMcpCommand(catalog: McpServerCatalog): Command {
     description: "Manage MCP servers, trust, discovery, and authentication",
     usage: USAGE,
     async execute(args, context) {
-      const [action = "", ...parts] = args.trim().split(/\s+/u);
+      let [action = "", ...parts] = args.trim().split(/\s+/u);
+      if (action === "" && context.selectChoice && canManage(context)) {
+        const snapshot = catalog.snapshot();
+        if (!snapshot.servers.length) return message(`${renderCatalog(catalog)}\nUse /mcp help to add a server.`);
+        const id = await context.selectChoice("MCP servers", snapshot.servers.map((server) => ({ id: server.id, label: `${server.id} · ${server.enabled ? server.state : "disabled"}`, detail: server.description })));
+        if (id === null) return message("MCP closed");
+        const server = snapshot.servers.find((entry) => entry.id === id);
+        if (!server) return message("MCP server no longer available", "error");
+        const selected = await context.selectChoice(server.id, [
+          { id: "inspect", label: "Details" }, { id: "diagnose", label: "Test connection", detail: "Discover tools, resources, and prompts" },
+          { id: server.enabled ? "disable" : "enable", label: server.enabled ? "Disable" : "Enable" },
+          ...(server.transport === "http" ? [{ id: "auth", label: "Sign in" }] : []),
+        ]);
+        if (selected === null) return message("MCP closed");
+        if (!["inspect", "diagnose", "enable", "disable", "auth"].includes(selected)) return message("Unknown MCP action", "error");
+        action = selected;
+        parts = ["enable", "disable"].includes(action) ? [server.source, id] : [id];
+      }
       if (action === "" || action === "list") return message(renderCatalog(catalog));
       if (action === "help") return message(USAGE);
       if (action === "inspect" && parts.length === 1) return message(renderCatalog(catalog, parts[0]));
@@ -106,7 +123,12 @@ export function createMcpCommand(catalog: McpServerCatalog): Command {
                 });
               const decoded = JSON.parse(result.output) as Record<string, unknown>;
               const field = operation.slice(5);
-              details.push(`${field}: ${Array.isArray(decoded[field]) ? decoded[field].length : "connected"}`);
+              const entries = decoded[field];
+              details.push(`${field}: ${Array.isArray(entries) ? entries.length : "connected"}`);
+              if (Array.isArray(entries)) for (const entry of entries.slice(0, 30)) {
+                if (typeof entry === "object" && entry !== null && typeof (entry as { name?: unknown }).name === "string") details.push(`  ${(entry as { name: string }).name.slice(0, 120)}`);
+              }
+              if (Array.isArray(entries) && entries.length > 30) details.push("  … first 30 shown");
             } catch (error) {
               if (error instanceof Error && "code" in error && error.code === "tool_unavailable") { details.push(`${operation.slice(5)}: not advertised`); continue; }
               throw error;

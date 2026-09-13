@@ -111,9 +111,9 @@ async function pty(f, args, steps = [], timeoutMs = 45000) {
 
 function setupSteps(f, depth) {
   return [
-    ["Choose a saved, detected, or recommended model connection:", f.connectionId],
-    ["Choose how much Recurs may do without asking:", "ask_always"],
-    ["Choose how much agent teamwork Recurs should use:", "balanced_v6"],
+    ["Connect a model:", f.connectionId],
+    ["Permissions:", "ask_always"],
+    ["Ready to code:", "balanced_v6"],
     ["Choose your team limits:", "recommended"],
     ["Tailor the first Recurs agent company to this project:", "create"],
     ["How deeply should Recurs understand the project before proposing your company?:", depth],

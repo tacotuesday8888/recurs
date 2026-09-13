@@ -167,11 +167,11 @@ describe("CompanyHomeComponent", () => {
       .toContain("Parent · ready");
     component.handleInput("\u001b[B");
     expect(component.render(100).join("\n"))
-      .toContain("Implement · running");
+      .toContain("> Implement");
     component.handleInput("\u001b[B");
     const moved = component.render(100).join("\n");
 
-    expect(moved).toContain("Review · running");
+    expect(moved).toContain("> Review");
     expect(moved).not.toContain("┌");
     expect(refresh).toHaveBeenCalledTimes(2);
   });
@@ -256,7 +256,7 @@ describe("LaunchComponent", () => {
     const first = component.render(92).join("\n");
     expect(first).toContain("RECURS / AUTH-SERVICE");
     expect(first).toContain("Chats · 2");
-    expect(first).toContain("Keep this model and permissions");
+    expect(first).toContain("Use current model");
     expect(first).not.toContain("████   █████");
     expect(first).toContain("> Current chat");
     expect(first).toContain("gpt-5.6-sol");
@@ -342,7 +342,7 @@ describe("TaskPanelComponent", () => {
     expect(renderedRows).toHaveLength(12);
     expect(renderedRows.at(-1)).toContain("ENTER INSPECT");
     expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
-    expect(rendered).toContain("Actual execution history");
+    expect(rendered).toContain("Execution history");
     expect(rendered).not.toContain("goal-1");
     expect(rendered).toContain("Scoped Builder");
     expect(rendered).toContain("implement-model · medium");
@@ -1593,11 +1593,10 @@ describe("RecursInteractiveShell", () => {
     expect(submitted).toEqual(["first"]);
     release();
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    terminal.input?.("\u001b[200~/quit\u001b[201~");
-    terminal.input?.("\r");
+    terminal.input?.("\u0011");
     await running;
 
-    expect(terminal.output).toContain("Wait for the active turn");
+    expect(terminal.output).toContain("draft kept");
   });
 
   it("queues concurrent runtime questions instead of dropping agent decisions", async () => {
@@ -1761,4 +1760,36 @@ describe("RecursInteractiveShell", () => {
     terminal.input?.("\u0011");
     await running;
   });
+});
+
+
+it("keeps input submitted during a session transition as the next chat draft", async () => {
+  const terminal = new TestTerminal();
+  let release!: () => void;
+  const transition = new Promise<void>((resolve) => { release = resolve; });
+  const session = { id: "first", model: "parent-model", permissionMode: "ask_always", agent: { operatingMode: { id: "balanced_v6" } } };
+  const submit = vi.fn(async () => { await transition; session.id = "second"; return { type: "message", text: "New chat" }; });
+  const runtime = {
+    state: { type: "session", session },
+    setConfirmHandler() {}, setApprovalHandler() {}, setUserInputHandler() {},
+    cancel() { return false; }, async close() {}, commandNames() { return ["new"]; }, submit,
+  } as unknown as RecursRuntime;
+  const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", animate: false });
+  const first = shell.start(runtime);
+  await vi.waitFor(() => expect(terminal.input).not.toBeNull());
+  terminal.input?.("\r");
+  terminal.input?.("/new"); terminal.input?.("\r");
+  await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+  terminal.input?.("keep this draft"); terminal.input?.("\r");
+  await vi.waitFor(() => expect(terminal.output).toContain("draft kept"));
+  expect(submit).toHaveBeenCalledOnce();
+  release();
+  expect(await first).toEqual({ type: "resume_session", sessionId: "second" });
+  terminal.output = "";
+  const second = shell.start(runtime);
+  await vi.waitFor(() => expect(terminal.input).not.toBeNull());
+  terminal.input?.("\r");
+  await vi.waitFor(() => expect(terminal.output).toContain("keep this draft"));
+  terminal.input?.("\u0011");
+  await second;
 });

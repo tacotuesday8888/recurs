@@ -175,9 +175,9 @@ describe("installed company prompt driver", () => {
     });
     const prompts = [
       "This unrelated output must not receive input.",
-      "Choose a saved, detected, or recommended model connection:",
-      "Choose how much Recurs may do without asking:",
-      "Choose how much agent teamwork Recurs should use:",
+      "Connect a model:",
+      "Permissions:",
+      "Ready to code:",
       "Choose your team limits:",
       "Tailor the first Recurs agent company to this project:",
       "How deeply should Recurs understand the project before proposing your company?:",

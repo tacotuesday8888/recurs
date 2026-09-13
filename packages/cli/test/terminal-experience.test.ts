@@ -54,17 +54,17 @@ describe("implemented terminal experience", () => {
   it("shows only completed patch changes, with exact observed line counts", () => {
     const activity = new TerminalActivity();
     start(activity, "--- a/file.ts\n+++ b/file.ts\n@@ -1 +1,2 @@\n---old\n+++new\n+extra\n");
-    expect(plain(activity.render(80, 9, 0, theme))).toContain("running");
+    expect(plain(activity.render(80, 9, 0, theme))).toContain("◐ apply_patch");
     expect(plain(activity.render(80, 9, 0, theme))).not.toContain("+new");
     activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
     const rendered = plain(activity.render(80, 9, 0, theme));
-    expect(rendered).toContain("+2 −1 observed patch lines");
+    expect(rendered).toContain("+2 −1 this turn · /diff");
     expect(rendered).toContain("---old\n+++new\n+extra");
     activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
     expect(plain(activity.render(80, 9, 0, theme))).toBe(rendered);
     activity.emit({ ...base, type: "turn_started", turnId: "next", prompt: "next" });
     expect(plain(activity.render(80, 9, 0, theme))).toContain("Waiting for model");
-    expect(plain(activity.render(80, 9, 0, theme))).not.toContain("observed patch lines");
+    expect(plain(activity.render(80, 9, 0, theme))).not.toContain("this turn · /diff");
   });
   it("does not present failed or oversized patch input as applied edits", () => {
     const activity = new TerminalActivity();
@@ -74,7 +74,7 @@ describe("implemented terminal experience", () => {
     expect(plain(activity.render(80, 9, 0, theme))).not.toContain("never applied");
     start(activity, "+".repeat(70000));
     activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
-    expect(plain(activity.render(80, 9, 0, theme))).not.toContain("observed patch lines");
+    expect(plain(activity.render(80, 9, 0, theme))).not.toContain("this turn · /diff");
   });
   it("colors diff additions and removals while preserving ordinary code", () => {
     const terminal = { columns: 80, rows: 30, write() {}, hideCursor() {}, showCursor() {} } as unknown as Terminal;

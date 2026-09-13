@@ -84,6 +84,7 @@ export interface TerminalGoalView {
 export interface TerminalUiSnapshot {
   readonly session: {
     readonly model: string;
+    readonly effort?: string;
     readonly mode: string;
     readonly permission: string;
     readonly workspace?: string;
@@ -455,7 +456,7 @@ export class TerminalUiState implements EventSink {
         roleName: "Parent",
         depth: 0,
         model: this.#session.model,
-        effort: null,
+        effort: this.#session.effort ?? null,
         status: parentStatus,
         activated: true,
         detail: goal?.phase ?? (goal === null ? "ready" : goal.status),
@@ -537,7 +538,7 @@ export class TerminalUiState implements EventSink {
         roleName: role.displayName,
         depth: depthOf(role.id),
         model: isRoot ? this.#session.model : representative?.model ?? null,
-        effort: isRoot ? null : representative?.effort ?? null,
+        effort: isRoot ? this.#session.effort ?? null : representative?.effort ?? null,
         status,
         activated: isRoot || matches.length > 0,
         ...(representative === undefined ? {} : { representativeExecutionId: representative.executionId }),

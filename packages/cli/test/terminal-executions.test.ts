@@ -16,7 +16,7 @@ describe("terminal execution identities", () => {
     const snapshot = state.snapshot();
     expect(snapshot.company.map((node) => node.roleId)).toEqual(["parent", "one", "nested", "two"]);
     expect(snapshot.company.find((node) => node.roleId === "nested")).toMatchObject({ reportsToRoleId: "one", representativeExecutionId: "nested" });
-    expect(renderCompanyHome(snapshot, 100, 0).join("\n")).toContain("3 actual child executions");
+    expect(renderCompanyHome(snapshot, 100, 0).join("\n")).toContain("3 child executions");
     expect(renderCompanyHome(snapshot, 100, 0).join("\n")).not.toContain("configured roles");
   });
 

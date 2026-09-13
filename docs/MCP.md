@@ -190,3 +190,7 @@ pagination, reuse, cancellation, and descendant cleanup; loopback legacy and
 PKCE, state rejection, private persistence, restart, token refresh, and logout.
 This is standards-based extensibility, not a claim that every third-party MCP
 server has been tested.
+
+In the terminal, `/mcp` opens a server picker with details, connection testing,
+enable/disable, and HTTP sign-in. `/mcp list` keeps the text inventory. Connection
+testing lists discovered tools, resources, and prompts under normal permissions.

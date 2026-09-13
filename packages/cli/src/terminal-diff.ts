@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util";
 import { Key, matchesKey, sliceByColumn, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { sanitizeTerminalText } from "./terminal-text.js";
 import type { TerminalTheme } from "./terminal-style.js";
@@ -40,6 +41,10 @@ const MODES = ["Unified", "Split", "Original", "Updated"] as const;
 /** A read-only snapshot; switching modes never changes files or the chat draft. */
 export class TerminalDiffViewer implements Component {
   #mode = 0;
+  #cache: { key: string; rows: string[] } | undefined;
+  #fileRows: { label: string; offset: number }[] = [];
+  #browsing = false;
+  #selectedFile = 0;
   #offset = 0;
   #column = 0;
   #page = 1;
@@ -48,7 +53,7 @@ export class TerminalDiffViewer implements Component {
   readonly #lines: DiffLine[];
   readonly #added: number;
   readonly #removed: number;
-  constructor(input: string, private readonly options: { theme: TerminalTheme; rows(): number; back(): void; refresh(): void }) {
+  constructor(input: string, private readonly options: { theme: TerminalTheme; title?: string; rows(): number; back(): void; refresh(): void }) {
     this.#truncated = input.length > 256 * 1024;
     this.#lines = parseTerminalDiff(input.slice(0, 256 * 1024));
     this.#added = this.#lines.filter((line) => line.kind === "add").length;
@@ -65,7 +70,9 @@ export class TerminalDiffViewer implements Component {
       ? `${String(line.oldLine ?? "").padStart(4)} ${String(line.newLine ?? "").padStart(4)} ${line.text[0]} ${content(line)}`
       : `${String(mode === 2 ? line.oldLine ?? "" : line.newLine ?? "").padStart(4)} ${content(line)}`));
     const mode = this.#mode === 1 && safeWidth < 90 ? 0 : this.#mode;
-    const rows: string[] = [];
+    const key = `${mode}:${safeWidth}:${this.#column}`;
+    const rows = this.#cache?.key === key ? this.#cache.rows : [];
+    if (this.#cache?.key !== key) {
     if (mode === 1) {
       const leftWidth = Math.floor((safeWidth - 3) / 2), rightWidth = safeWidth - 3 - leftWidth;
       const cell = (line: DiffLine | undefined, side: "old" | "new", columns: number): string => {
@@ -92,7 +99,19 @@ export class TerminalDiffViewer implements Component {
         rows.push(line.kind === "add" || line.kind === "remove" || line.kind === "context" ? numbered(line, mode) : color(line, fit(line.text)));
       }
     }
-    const title = fit(`${theme.strong(`Changes · ${MODES[mode]}${mode >= 2 ? " excerpt" : ""}`)} · ${theme.success(`+${this.#added}`)} ${theme.failure(`−${this.#removed}`)}${this.#truncated ? " · partial preview" : ""}`);
+    this.#cache = { key, rows };
+    this.#fileRows = rows.flatMap((row, offset) => {
+      const text = stripVTControlCharacters(row);
+      return text.startsWith("diff --git ") ? [{ label: text.slice(11), offset }] : [];
+    });
+    }
+    if (this.#browsing) {
+      this.#page = Math.max(1, height - 2);
+      const start = Math.max(0, this.#selectedFile - this.#page + 1);
+      const files = this.#fileRows.slice(start, start + this.#page).map((file, index) => (start + index === this.#selectedFile ? theme.accent : theme.code)(fit(`${start + index === this.#selectedFile ? "›" : " "} ${file.label}`)));
+      return [theme.strong(fit(`Changed files · ${this.#fileRows.length}`)), ...files, theme.muted(fit("↑↓ select · Enter open · Esc back"))].slice(-height);
+    }
+    const title = fit(`${theme.strong(`${this.options.title ?? "Changes"} · ${MODES[mode]}${mode >= 2 ? " excerpt" : ""}`)} · ${theme.success(`+${this.#added}`)} ${theme.failure(`−${this.#removed}`)}${this.#truncated ? " · partial preview" : ""}`);
     if (height === 1) return [title];
     const hint = fit(this.#mode === 1 && mode === 0 ? "Split needs 90 columns · showing unified" : "1 unified · 2 split · 3 original · 4 updated");
     const header = height >= 5 ? [title, theme.muted(hint)] : [title];
@@ -101,9 +120,17 @@ export class TerminalDiffViewer implements Component {
     this.#offset = Math.min(this.#offset, this.#maximum);
     const body = rows.slice(this.#offset, this.#offset + this.#page);
     while (body.length < height - header.length - 1) body.push("");
-    return [...header, ...body, theme.muted(fit(`Esc back · ↑↓ scroll · ←→ pan · ${this.#offset + 1}/${Math.max(1, rows.length)}`))].slice(0, height);
+    return [...header, ...body, theme.muted(fit(`Esc back · F files · ↑↓ scroll · ←→ pan · ${this.#offset + 1}/${Math.max(1, rows.length)}`))].slice(0, height);
   }
   handleInput(data: string): void {
+    if (this.#browsing) {
+      if (matchesKey(data, Key.escape) || data === "f") this.#browsing = false;
+      else if (matchesKey(data, Key.up)) this.#selectedFile = Math.max(0, this.#selectedFile - 1);
+      else if (matchesKey(data, Key.down)) this.#selectedFile = Math.min(this.#fileRows.length - 1, this.#selectedFile + 1);
+      else if (matchesKey(data, Key.enter)) { this.#offset = this.#fileRows[this.#selectedFile]?.offset ?? 0; this.#browsing = false; }
+      this.options.refresh(); return;
+    }
+    if (data === "f") { this.#browsing = true; this.options.refresh(); return; }
     if (matchesKey(data, Key.escape) || data === "q") { this.options.back(); return; }
     if (/^[1-4]$/u.test(data) || matchesKey(data, Key.tab)) { this.#mode = matchesKey(data, Key.tab) ? (this.#mode + 1) % MODES.length : Number(data) - 1; this.#offset = 0; }
     else if (matchesKey(data, Key.up)) this.#offset = Math.max(0, this.#offset - 1);
