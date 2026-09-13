@@ -94,3 +94,11 @@ replacement and forced layout: mean 3.19ms, p95 3.50ms, maximum 3.60ms on the
 local development machine. These are UI rendering measurements, not benchmark
 model timing. Fourteen website checks pass, including shared-cell equality and
 full-rotation crop bounds.
+
+The visibility handler was verified with instrumented browser interval counts:
+hidden-state notification leaves zero R intervals, restoring visibility starts
+exactly one, and user pause or reduced motion leaves zero. The automation host
+kept document.hidden false during native tab/window background attempts, so no
+native OS visibility transition is claimed. Actual mobile offscreen suspension,
+user pause, live reduced motion, no-JavaScript rendering and anchor navigation
+were separately verified in the browser.
