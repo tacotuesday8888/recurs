@@ -187,11 +187,7 @@ h1 {
   border-color:var(--line);
   background:#fff;
 }
-.view-controls span {
-  margin-left:auto;
-  font:10px var(--mono);
-  color:var(--muted);
-}
+
 .terminal-image {
   background:#15191f;
   border-radius:5px 5px 0 0;
@@ -575,9 +571,6 @@ footer nav {
   .view-controls button {
     padding:9px 10px;
     font-size:11px;
-  }
-  .view-controls span {
-    display:none;
   }
   .command-guide {
     padding:8px 12px;

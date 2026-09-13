@@ -65,7 +65,8 @@ function renderArm(arm: Arm, trials: Trial[]) {
 
 export function trialDetails(campaign: Campaign) {
   const provenance = `<p class="fine">Source: ${escapeHtml(campaign.sourceRevision)} · ${escapeHtml(campaign.sourceState)}${campaign.artifactSha256 ? `<br>Executed bundle SHA-256: ${escapeHtml(campaign.artifactSha256)}` : ""}</p>`;
-  return provenance + `<p class="fine">Confirmation requests count harness callbacks, including preapproved intents;
+  return provenance + `<p class="fine">Terminal images come from the installed CLI walkthrough;
+    the benchmark records describe separate model-backed trials.</p><p class="fine">Confirmation requests count harness callbacks, including preapproved intents;
     they are not a count of human interventions. User-input requests are recorded separately.
     Recorded requests count Recurs runtime invocations, not every internal vendor model/tool turn.
     Missing trial slots have no measured time or usage; conservative settlement charges are not measurements.</p>` +
