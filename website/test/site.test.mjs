@@ -26,8 +26,8 @@ test("render escapes model identity and verification evidence", () => {
   const campaign = structuredClone(campaigns[3]);
   campaign.arms[0].id = "<script>";
   campaign.arms[0].routes[0].modelId = '<img src=x onerror="alert(1)">';
-  assert.doesNotMatch(resultRows(campaign), /<script>/u);
-  assert.doesNotMatch(trialDetails(campaign), /<img/u);
+  assert.doesNotMatch(resultRows(campaign), /<script>/iu);
+  assert.doesNotMatch(trialDetails(campaign), /<img/iu);
   assert.match(trialDetails(campaign), /&lt;img/u);
 });
 test("unknown metrics and incomplete denominators remain explicit", () => {

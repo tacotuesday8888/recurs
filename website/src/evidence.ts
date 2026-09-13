@@ -13,7 +13,7 @@ export interface Trial {
 }
 export interface Campaign {
   id: string; date: string; scenario: string; harnessRevision: string;
-  plannedSlots: number; recordedTrials: number; settledSlots: number; complete: boolean;
+  plannedSlots: number; recordedTrials: number; settledSlots: number; complete: boolean; repetitions: number;
   arms: Arm[]; trials: Trial[];
 }
 export const escapeHtml = (value: string | number) => String(value).replace(/[&<>"']/gu,
@@ -22,7 +22,7 @@ const number = (value: number | null) => value === null ? "Unknown" : value.toLo
 export const armName = (id: string) => ({ "single-strong": "Single agent", "company-auto": "Mixed-model team", "company-strong": "All-Sol team" })[id] ?? id;
 export const campaignName = (campaign: Campaign) => `${campaign.date} · ${campaign.scenario} · ${campaign.complete ? "complete" : "interrupted"} · ${campaign.arms.every((arm) => arm.parentMatched) ? "matched parent" : "unmatched parents"}`;
 export function context(campaign: Campaign) {
-  return `${campaign.harnessRevision.replace("recurs_0_1_0-", "")} · ${campaign.recordedTrials}/${campaign.plannedSlots} trial records · ${campaign.settledSlots}/${campaign.plannedSlots} slots settled · ${campaign.complete ? "3 repetitions per arm" : "Incomplete campaign; missing trials are not passes"}`;
+  return `${campaign.harnessRevision.replace("recurs_0_1_0-", "")} · ${campaign.recordedTrials}/${campaign.plannedSlots} trial records · ${campaign.settledSlots}/${campaign.plannedSlots} slots settled · ${campaign.complete ? `${campaign.repetitions} ${campaign.repetitions === 1 ? "repetition" : "repetitions"} per arm` : "Incomplete campaign; missing trials are not passes"}`;
 }
 export function resultRows(campaign: Campaign) {
   return campaign.arms.map((arm) => `<tr><td>${escapeHtml(armName(arm.id))}</td><td class="result-pass">${arm.passed} / ${arm.planned}</td><td>${arm.medianWallClockMs === null ? "Unknown" : `${(arm.medianWallClockMs / 1000).toFixed(1)} s`}</td><td>${number(arm.inputTokens)}</td><td>${number(arm.outputTokens)}</td><td>${arm.reportedCostUsd === null ? "Unknown" : `$${arm.reportedCostUsd.toFixed(4)}`}</td></tr>`).join("");

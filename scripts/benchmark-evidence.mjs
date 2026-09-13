@@ -25,7 +25,9 @@ function publicRecord(value) {
 }
 
 export function validateEvidence(evidence) {
-  assert(evidence.version === 1 && evidence.kind === "historical_model_backed", "Unsupported evidence");
+  assert(evidence.version === 1 && ["historical_model_backed", "model_backed"].includes(evidence.kind), "Unsupported evidence");
+  assert(evidence.kind === (evidence.selection.kind ?? "historical_model_backed") &&
+    same(evidence.campaigns.map((entry) => entry.campaign.id), evidence.selection.campaignIds), "Evidence selection mismatch");
   const ids = new Set();
   for (const entry of evidence.campaigns) {
     const campaign = parseCompanyBenchmarkCampaign(entry.campaign);
@@ -87,6 +89,7 @@ export function summarizeEvidence(evidence) {
     date: campaign.createdAt.slice(0, 10),
     scenario: campaign.scenario.id,
     harnessRevision: campaign.harnessRevision,
+    repetitions: campaign.repetitions,
     plannedSlots: campaign.armOrder.length,
     recordedTrials: trials.length,
     settledSlots: settlements.length,
@@ -136,7 +139,7 @@ export async function exportEvidence(dataDirectory, selection) {
   });
   return validateEvidence({
     version: 1,
-    kind: "historical_model_backed",
+    kind: selection.kind ?? "historical_model_backed",
     selection,
     // No prompts, auth files, environment, account identities, or raw model output are read.
     redactions: ["Local connection IDs replaced with stable SHA-256 aliases"],
@@ -147,16 +150,24 @@ export async function exportEvidence(dataDirectory, selection) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [action, ...args] = process.argv.slice(2);
   try {
+    const options = new Map();
+    for (let index = 0; index < args.length; index += 2) {
+      const key = args[index];
+      assert(["--recurs-home", "--selection", "--results"].includes(key) &&
+        !options.has(key) && args[index + 1] && !args[index + 1].startsWith("--"),
+      "Use export|check [--selection path] [--results path] [--recurs-home path]");
+      options.set(key, args[index + 1]);
+    }
+    const selectionPath = path.resolve(options.get("--selection") ?? path.join(root, "benchmarks/selection.json"));
+    const resultsPath = path.resolve(options.get("--results") ?? path.join(root, "benchmarks/results.json"));
+    const selection = JSON.parse(await readFile(selectionPath, "utf8"));
     if (action === "export") {
-      assert(args.length === 0 || args.length === 2 && args[0] === "--recurs-home", "Use export [--recurs-home path]");
-      const selection = JSON.parse(await readFile(path.join(root, "benchmarks/selection.json"), "utf8"));
-      const evidence = await exportEvidence(args[1] ?? process.env.RECURS_HOME ?? path.join(homedir(), ".recurs"), selection);
-      await writeFile(path.join(root, "benchmarks/results.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+      const evidence = await exportEvidence(options.get("--recurs-home") ?? process.env.RECURS_HOME ?? path.join(homedir(), ".recurs"), selection);
+      await writeFile(resultsPath, `${JSON.stringify(evidence, null, 2)}\n`);
       console.log(`Exported ${evidence.campaigns.length} campaigns; no provider requests.`);
     } else {
-      assert(action === "check" && args.length === 0, "Use benchmark-evidence.mjs export|check");
-      const evidence = JSON.parse(await readFile(path.join(root, "benchmarks/results.json"), "utf8"));
-      const selection = JSON.parse(await readFile(path.join(root, "benchmarks/selection.json"), "utf8"));
+      assert(action === "check" && !options.has("--recurs-home"), "Use benchmark-evidence.mjs export|check");
+      const evidence = JSON.parse(await readFile(resultsPath, "utf8"));
       assert(same(evidence.selection, selection) && same(evidence.campaigns.map((entry) => entry.campaign.id), selection.campaignIds), "Evidence selection drift");
       console.log(JSON.stringify(summarizeEvidence(evidence), null, 2));
     }

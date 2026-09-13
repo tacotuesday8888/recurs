@@ -462,6 +462,7 @@ details[open] summary span {
 .trial-list li {
   padding:7px 10px;
   background:#f7f6f2;
+  overflow-wrap:anywhere;
 }
 .method-grid {
   display:grid;
