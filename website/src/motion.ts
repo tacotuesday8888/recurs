@@ -1,28 +1,25 @@
 import { terminalLetterSvg } from "./letter.js";
 
-/** Decorative motion only: native scroll position and input events are untouched. */
+/** Native scroll is untouched. Results animate once when they enter the viewport. */
 export function installPageMotion(onPause: () => void) {
-  const root = document.documentElement;
+  const easing = getComputedStyle(document.documentElement).getPropertyValue("--ease-out").trim();
   const preference = matchMedia("(prefers-reduced-motion: reduce)");
   const toggle = document.querySelector<HTMLButtonElement>("#motion-toggle")!;
-  const progress = document.querySelector<HTMLElement>(".scroll-progress span")!;
   const ornament = document.querySelector<HTMLElement>(".brand-drift")!;
   const letter = ornament.querySelector<SVGElement>("svg")!;
   let idleFrame = 0;
   let spinTimer = 0;
   let brandInView = typeof IntersectionObserver === "undefined";
   let paused = false;
-  try { paused = sessionStorage.getItem("recurs-motion-paused") === "true"; } catch { /* Storage can be unavailable in private contexts. */ }
-  let keyboard = false;
-  let frame = 0;
-  let lastTime = 0;
-  let current = 0;
-  let scrollRange = 1;
+  try { paused = sessionStorage.getItem("recurs-motion-paused") === "true"; } catch { /* Controls work without storage. */ }
+  let keyboard = Boolean(location.hash);
+  let countFrame = 0;
   const reveals = new Set<Animation>();
+  const counts = new Map<HTMLElement, { target: number; final: string; started: number }>();
+  const number = new Intl.NumberFormat("en-US");
   const enabled = () => !paused && !preference.matches && !document.hidden;
-  const target = () => Math.max(0, Math.min(1, scrollY / scrollRange));
   const renderLetter = () => {
-    const phase = enabled() ? idleFrame + current * (Math.PI * 2 / 0.096) * 3 : 0;
+    const phase = enabled() ? idleFrame : 0;
     letter.innerHTML = terminalLetterSvg(phase);
     letter.dataset.frame = String(phase);
   };
@@ -31,89 +28,78 @@ export function installPageMotion(onPause: () => void) {
     spinTimer = 0;
     if (enabled() && brandInView) {
       renderLetter();
-      // Same 80 ms frame cadence and 3D projection as the terminal opening.
+      // Same independent 80 ms cadence and 3D projection as the terminal.
       spinTimer = window.setInterval(() => { idleFrame += 1; renderLetter(); }, 80);
     }
   };
-  const paint = () => {
-    progress.style.transform = `scaleX(${current})`;
-    ornament.dataset.scrollPhase = String(current);
-  };
-  const stop = () => {
-    cancelAnimationFrame(frame);
-    frame = 0;
-    lastTime = 0;
+  const settle = () => {
+    cancelAnimationFrame(countFrame);
+    countFrame = 0;
+    for (const [element, value] of counts) element.textContent = value.final;
+    counts.clear();
     for (const animation of reveals) animation.cancel();
     reveals.clear();
   };
-  const animate = (now: number) => {
-    frame = 0;
-    if (!enabled()) return;
-    const elapsed = lastTime === 0 ? 16 : Math.min(48, now - lastTime);
-    lastTime = now;
-    const destination = target();
-    current += (destination - current) * (1 - Math.exp(-elapsed / 110));
-    if (Math.abs(destination - current) < 0.0005) current = destination;
-    paint();
-    if (current !== destination) frame = requestAnimationFrame(animate);
-    else lastTime = 0;
+  const tick = (now: number) => {
+    countFrame = 0;
+    if (!enabled() || keyboard) { settle(); return; }
+    for (const [element, value] of counts) {
+      const progress = Math.min(1, Math.max(0, (now - value.started) / 650));
+      element.textContent = progress === 1 ? value.final : number.format(Math.floor(value.target * (1 - (1 - progress) ** 3)));
+      if (progress === 1) counts.delete(element);
+    }
+    if (counts.size) countFrame = requestAnimationFrame(tick);
   };
-  const update = () => {
-    if (!enabled()) return;
-    if (keyboard) { stop(); current = target(); paint(); if (brandInView) renderLetter(); }
-    else if (frame === 0) frame = requestAnimationFrame(animate);
+  const enter = (element: Element) => {
+    if (!enabled() || keyboard) return;
+    // Never hide content in CSS: no-JS, deep links, and interrupted effects keep final content.
+    const animation = element.animate([{ opacity: .55, transform: "translateY(8px)" }, { opacity: 1, transform: "translateY(0)" }], {
+      duration: 260, easing,
+    });
+    reveals.add(animation);
+    void animation.finished.then(() => reveals.delete(animation)).catch(() => {});
+    const started = performance.now();
+    element.querySelectorAll<HTMLElement>("[data-count-to]").forEach(counter => {
+      const target = Number(counter.dataset.countTo);
+      if (!Number.isFinite(target) || target <= 0) return;
+      counts.set(counter, { target, final: counter.textContent ?? number.format(target), started });
+      counter.textContent = "0";
+    });
+    if (counts.size && countFrame === 0) countFrame = requestAnimationFrame(tick);
   };
-  const measure = () => { scrollRange = Math.max(1, document.documentElement.scrollHeight - innerHeight); update(); };
   const sync = () => {
-    stop();
-    root.classList.toggle("motion-enabled", enabled());
+    settle();
     toggle.hidden = false;
     toggle.disabled = preference.matches;
     toggle.textContent = preference.matches ? "Motion off" : paused ? "Resume motion" : "Pause motion";
     toggle.setAttribute("aria-pressed", String(paused || preference.matches));
-    if (enabled()) { current = target(); paint(); }
-    else { progress.style.transform = "scaleX(0)"; renderLetter(); onPause(); }
+    if (!enabled()) { renderLetter(); onPause(); }
     syncSpin();
   };
   toggle.addEventListener("click", () => {
     paused = !paused;
-    try { sessionStorage.setItem("recurs-motion-paused", String(paused)); } catch { /* Motion controls still work without storage. */ }
+    try { sessionStorage.setItem("recurs-motion-paused", String(paused)); } catch { /* Controls work without storage. */ }
     sync();
   });
   preference.addEventListener("change", sync);
   document.addEventListener("visibilitychange", sync);
-  // Read-only, passive listeners. The rAF loop interpolates decoration; it is not scroll throttling.
-  document.addEventListener("scroll", update, { passive: true });
   document.addEventListener("wheel", () => { keyboard = false; }, { passive: true });
   document.addEventListener("touchstart", () => { keyboard = false; }, { passive: true });
-  document.addEventListener("keydown", () => { keyboard = true; update(); });
-  document.addEventListener("click", (event) => {
-    if ((event.target as HTMLElement).closest('a[href^="#"]')) { keyboard = true; update(); }
+  document.addEventListener("pointerdown", () => { keyboard = false; }, { passive: true });
+  document.addEventListener("keydown", () => { keyboard = true; settle(); });
+  document.addEventListener("click", event => {
+    if ((event.target as HTMLElement).closest('a[href^="#"]')) { keyboard = true; settle(); }
   });
-  addEventListener("resize", measure, { passive: true });
-  addEventListener("pageshow", () => { measure(); current = target(); if (enabled()) paint(); });
-  if (typeof ResizeObserver !== "undefined") new ResizeObserver(measure).observe(document.body);
   if (typeof IntersectionObserver !== "undefined") {
-    new IntersectionObserver(([entry]) => {
-      brandInView = entry?.isIntersecting ?? false;
-      root.classList.toggle("brand-in-view", brandInView);
-      syncSpin();
-    }).observe(ornament);
+    new IntersectionObserver(([entry]) => { brandInView = entry?.isIntersecting ?? false; syncSpin(); }).observe(ornament);
     const observer = new IntersectionObserver(entries => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
         observer.unobserve(entry.target);
-        if (!enabled() || keyboard) continue;
-        const animation = entry.target.animate([
-          { opacity: 0.65, transform: "translateY(12px)" },
-          { opacity: 1, transform: "translateY(0)" },
-        ], { duration: 480, easing: "cubic-bezier(0.16,1,0.3,1)" });
-        reveals.add(animation);
-        void animation.finished.then(() => reveals.delete(animation)).catch(() => {});
+        enter(entry.target);
       }
-    }, { threshold: 0.4 });
+    }, { threshold: .3 });
     document.querySelectorAll("[data-scroll-reveal]").forEach(element => observer.observe(element));
   }
-  measure();
   sync();
 }
