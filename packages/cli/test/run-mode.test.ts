@@ -2983,10 +2983,15 @@ describe("runCli", () => {
       ["run", "continue", "--resume", "session_1", "--format", "jsonl"],
       dependenciesWithOptions,
     )).toBe(0);
+    expect(await runCli(
+      ["run", "keep going", "--continue", "--format", "jsonl"],
+      dependenciesWithOptions,
+    )).toBe(0);
 
     expect(runtimeOptions).toEqual([
       { reuseExistingSession: false },
       { reuseExistingSession: false, resumeSessionId: "session_1" },
+      { reuseExistingSession: false, resumeLatestSession: true },
     ]);
     expect(stderr.value).toBe("");
   });
@@ -3498,6 +3503,13 @@ describe("runCli", () => {
     ["run", "inspect", "--mode", "balanced", "--mode", "max"],
     ["run", "inspect", "--resume", "session-1", "--mode", "economy"],
     ["run", "inspect", "--resume", "session-1", "--plan"],
+    ["run", "inspect", "--continue", "--continue"],
+    ["run", "inspect", "--continue", "--resume", "session-1"],
+    ["run", "inspect", "--continue", "--plan"],
+    ["run", "inspect", "--continue", "--permissions", "approved"],
+    ["run", "inspect", "--continue", "--mode", "economy"],
+    ["run", "inspect", "--continue", "--connection", "saved"],
+    ["review", "--continue"],
     ["run", "inspect", "--plan", "--plan"],
     ["run", "inspect", "--connection"],
     ["run", "inspect", "--connection", "../outside"],
@@ -3609,6 +3621,43 @@ describe("runCli", () => {
     },
   );
 
+  it.each(["bash", "zsh", "fish"])(
+    "prints a static %s completion script without creating a runtime",
+    async (shell) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli(["completion", shell], {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(0);
+      expect(stdout.value).toContain("recurs");
+      expect(stdout.value).toContain(shell === "fish" ? "-l continue" : "--continue");
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each([["completion"], ["completion", "powershell"], ["completion", "zsh", "extra"]])(
+    "rejects unsupported completion requests %j with the help text",
+    async (...argv) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(2);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("recurs completion bash|zsh|fish");
+    },
+  );
+
   it.each([
     ["run", "Run one coding-agent prompt", "--format text|json|jsonl"],
     ["review", "Review the current staged", "fresh durable Plan session"],
@@ -3625,6 +3674,7 @@ describe("runCli", () => {
       "selected parent-only baseline",
     ],
     ["acp", "Serve Recurs as an ACP agent", "standard output"],
+    ["completion", "Print a shell completion script", "recurs completion bash|zsh|fish"],
   ] as const)(
     "prints scoped %s help through both supported forms",
     async (topic, heading, detail) => {

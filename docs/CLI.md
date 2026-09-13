@@ -39,6 +39,21 @@ brew install tacotuesday8888/recurs/recurs
 All four paths require Node.js. Bun installs the package but is not a supported
 Recurs runtime. There is no signed standalone binary or desktop release.
 
+### Shell completion
+
+Print a static completion script for your shell and load it from your shell
+startup file:
+
+```bash
+eval "$(recurs completion bash)"     # ~/.bashrc
+eval "$(recurs completion zsh)"      # ~/.zshrc
+recurs completion fish | source      # ~/.config/fish/config.fish
+```
+
+The script completes the reviewed commands, subcommands, and option values.
+It never runs Recurs or reads sessions, connections, or private state while
+you type.
+
 ### Upgrade or uninstall
 
 Use the same channel you installed from:
@@ -439,6 +454,7 @@ recurs run "inspect the repository" --plan
 recurs run "fix the failing test" --permissions approved
 recurs run "describe this screenshot" --image ./screen.png
 recurs run "continue" --resume <session-id>
+recurs run "keep going" --continue
 recurs run - --format jsonl
 ```
 
@@ -450,6 +466,10 @@ Useful options:
 - `--mode economy|standard|balanced|performance|max` selects the operating
   mode.
 - `--connection <id>` selects one saved connection.
+- `--resume <session-id>` continues one exact durable parent session;
+  `--continue` continues the newest one recorded for this working root. Both
+  keep the stored connection, permissions, and operating mode, so they cannot
+  be combined with `--plan`, `--permissions`, `--mode`, or `--connection`.
 - `--format text|json|jsonl` selects output framing.
 - `--stdin` appends bounded piped input.
 - `--image <path>` attaches PNG, JPEG, or WebP input.

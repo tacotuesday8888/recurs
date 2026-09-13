@@ -191,6 +191,8 @@ export interface StandaloneRuntimeOptions {
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
   resumeSessionId?: string;
+  /** Resume the most recent durable parent session of this workspace exactly. */
+  resumeLatestSession?: boolean;
   operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
   executionMode?: ExecutionMode;
@@ -1049,6 +1051,9 @@ export async function createStandaloneRuntime(
     projectDataDirectory: projectData,
   });
   const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
+  const resumeSessionId = options.resumeLatestSession === true
+    ? await latestParentSessionId(sessions, cwd, options.resumeSessionId)
+    : options.resumeSessionId;
   const companyBlueprints = new FileCompanyBlueprintStore(
     path.join(projectData, "company-blueprints"),
   );
@@ -1098,7 +1103,7 @@ export async function createStandaloneRuntime(
   if (requestedCompany?.version === 2) {
     validateCompanyExecutionPolicy(requestedCompany);
   }
-  if (requestedCompany !== null && options.resumeSessionId !== undefined) {
+  if (requestedCompany !== null && resumeSessionId !== undefined) {
     throw new RuntimeError(
       "invalid_input",
       "A company blueprint starts a fresh bound parent session and cannot be attached while resuming",
@@ -1156,7 +1161,7 @@ export async function createStandaloneRuntime(
       )
     : null;
   if (
-    options.resumeSessionId !== undefined &&
+    resumeSessionId !== undefined &&
     options.connectionId !== undefined
   ) {
     throw new RuntimeError(
@@ -1240,11 +1245,11 @@ export async function createStandaloneRuntime(
           runtimeEnvironment,
           options.environmentFetch,
         ) ?? undefined;
-  const existing = options.resumeSessionId === undefined
+  const existing = resumeSessionId === undefined
     ? await sessions.list()
     : [];
   let requestedSession: PinnedSessionState | null = null;
-  if (options.resumeSessionId !== undefined) {
+  if (resumeSessionId !== undefined) {
     if (
       options.permissionMode !== undefined ||
       options.operatingModeId !== undefined ||
@@ -1258,7 +1263,7 @@ export async function createStandaloneRuntime(
     }
     let candidate: SessionState;
     try {
-      candidate = await sessions.loadState(options.resumeSessionId);
+      candidate = await sessions.loadState(resumeSessionId);
     } catch (error) {
       if (
         error instanceof SessionStoreError &&
@@ -1268,7 +1273,7 @@ export async function createStandaloneRuntime(
         throw new RuntimeError(
           "invalid_input",
           error.code === "session_not_found"
-            ? `Session not found: ${options.resumeSessionId}`
+            ? `Session not found: ${resumeSessionId}`
             : "The requested session id is invalid",
         );
       }
@@ -2231,4 +2236,29 @@ export async function createStandaloneRuntime(
         });
   }
   return runtime;
+}
+
+/** Exact id of the newest durable parent session recorded for this workspace. */
+async function latestParentSessionId(
+  sessions: JsonlSessionStore,
+  cwd: string,
+  explicitSessionId: string | undefined,
+): Promise<string> {
+  if (explicitSessionId !== undefined) {
+    throw new RuntimeError(
+      "invalid_input",
+      "Choose either the latest session or one exact session id, not both",
+    );
+  }
+  for (const entry of await sessions.list()) {
+    if (entry.cwd !== cwd || entry.version !== 2) continue;
+    const candidate = await sessions.loadStateReadOnly(entry.id);
+    if (isPinnedSessionState(candidate) && candidate.agent.role === "parent") {
+      return candidate.id;
+    }
+  }
+  throw new RuntimeError(
+    "invalid_input",
+    "No durable parent session exists for this workspace; start without --continue",
+  );
 }

@@ -6,6 +6,7 @@ Usage:
   recurs run <prompt> [-C <dir>] Run one prompt in one working root
   recurs run <prompt> [--plan] [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
+  recurs run <prompt> --continue Resume this workspace's latest durable session
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs run <prompt> --image <path> [--image <path>]
@@ -33,6 +34,7 @@ Usage:
   recurs permissions [--json]    Inspect exact workspace permission rules
   recurs eval company [--json]   Run a bounded company-formation evaluation
   recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
+  recurs completion bash|zsh|fish  Print a shell completion script
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
@@ -56,11 +58,13 @@ Usage:
                     [--connection <id>] [--plan]
                     [--image <path>] (repeat up to four times)
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
+  recurs run <prompt> --continue [--format text|json|jsonl]
   recurs run -
   recurs run <prompt> --stdin
 
 Fresh runs create a new durable session. Resume retains the stored provider,
-working root, permissions, and operating mode. JSON writes one terminal object;
+working root, permissions, and operating mode; --continue resumes the newest
+durable parent session recorded for this working root the same way. JSON writes one terminal object;
 JSONL streams normalized events. Stdin is bounded to 1 MiB of valid UTF-8.
 Explicit PNG, JPEG, and WebP inputs are bounded to five MiB total and require
 a direct provider adapter with image support. --plan pins the fresh session to
@@ -226,6 +230,20 @@ Usage:
 
 ACP is a machine protocol: standard output is reserved for protocol frames.
 The client supplies one absolute workspace root per session.
+`,
+  completion: `Print a shell completion script for the recurs command
+
+Usage:
+  recurs completion bash|zsh|fish
+
+Add one line to your shell startup file:
+  eval "$(recurs completion bash)"     # ~/.bashrc
+  eval "$(recurs completion zsh)"      # ~/.zshrc
+  recurs completion fish | source      # ~/.config/fish/config.fish
+
+The script is static. It completes the reviewed commands, subcommands, and
+option values only; it never runs Recurs or reads sessions, connections, or
+private state while you type.
 `,
 } as const);
 
