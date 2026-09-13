@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "title": "Round 2 — historical model-backed comparisons",
+  "evidenceCutoff": "2026-08-08",
+  "sourceRevision": "0833e549dcbed709d2bbf88a51f92b765df65c88",
+  "selectionReason": "Every campaign in the published Round 2 inventory, including the interrupted campaign and unmatched-parent observations. No outcome-based exclusions.",
+  "campaignIds": [
+    "company-proof-a2003c1d-0a5a-45da-a5a6-dc8ab3411c84",
+    "company-proof-51b3bdb1-4a05-4331-951a-14dc49545a9b",
+    "company-proof-d0c7c179-a9a8-48c3-a053-61984370d4ce",
+    "company-proof-3e097996-56a2-4c84-90d4-cc2cef840723"
+  ]
+}

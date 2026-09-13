@@ -47,7 +47,7 @@
   },
   "scripts": {
     "build": "tsc -b && npm run package:build",
-    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run package:check",
+    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run package:check && npm run benchmark:check && npm run website:check",
     "check:generated": "node scripts/generate-non-secret-policy.mjs --check && node scripts/generate-provider-activation-profiles.mjs --check && node scripts/generate-recurs-brand.mjs --check",
     "generate:non-secret-policy": "node scripts/generate-non-secret-policy.mjs",
     "generate:provider-activation-profiles": "node scripts/generate-provider-activation-profiles.mjs",
@@ -66,7 +66,9 @@
     "package:smoke-terminal": "node scripts/smoke-terminal.mjs",
     "package:smoke-extensions": "node scripts/smoke-extensions.mjs",
     "ui:preview": "npm run build --silent && node scripts/preview-terminal.mjs",
-    "ui:demo": "npm run build --silent && node scripts/smoke-terminal.mjs --interactive"
+    "ui:demo": "npm run build --silent && node scripts/smoke-terminal.mjs --interactive",
+    "benchmark:check": "node scripts/benchmark-evidence.mjs check && node scripts/benchmark-evidence.mjs check --selection benchmarks/current-selection.json --results benchmarks/current-results.json && node --test scripts/benchmark-evidence.test.mjs",
+    "website:check": "npm --prefix website run check"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",

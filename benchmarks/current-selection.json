@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "title": "Foreground retry-after probe — one matched-parent pair",
+  "sourceRevision": "69c0fe5",
+  "sourceState": "Dirty codex/product-workflows candidate at launch; not the final website or terminal commit",
+  "executedArtifact": "dist/cli/main.js",
+  "executedArtifactSha256": "760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f",
+  "selectionReason": "One predeclared retry_after pair through the supported foreground CLI, existing saved routes, repetitions 1. All resulting slots retained; no retries or outcome-based exclusions.",
+  "campaignIds": ["company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48"]
+}

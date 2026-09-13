@@ -1,0 +1,596 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "selection": {
+    "version": 1,
+    "kind": "model_backed",
+    "title": "Foreground retry-after probe — one matched-parent pair",
+    "sourceRevision": "69c0fe5",
+    "sourceState": "Dirty codex/product-workflows candidate at launch; not the final website or terminal commit",
+    "executedArtifact": "dist/cli/main.js",
+    "executedArtifactSha256": "760393acc9f3b3b9be2bcd20c0c095a1004156fd77f3fca3777cc2503e07142f",
+    "selectionReason": "One predeclared retry_after pair through the supported foreground CLI, existing saved routes, repetitions 1. All resulting slots retained; no retries or outcome-based exclusions.",
+    "campaignIds": [
+      "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48"
+    ]
+  },
+  "redactions": [
+    "Local connection IDs replaced with stable SHA-256 aliases"
+  ],
+  "campaigns": [
+    {
+      "sourceSha256": "8e1938f33743b34e9a3b6ce7c1b5a8f2e61b3659499a72940127b41b089520bc",
+      "campaign": {
+        "id": "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48",
+        "version": 1,
+        "createdAt": "2026-09-13T01:34:07.256Z",
+        "scenario": {
+          "id": "retry_after",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "ba99fc64c07892d54e15115bf04eb31ec5091755961d1d059ed794265ed5a22e",
+          "verifierId": "retry_after_hidden_v1",
+          "objectiveRevision": "retry_after_objective_v1"
+        },
+        "harnessRevision": "recurs_0_1_0-alpha_11",
+        "launchProtocolRevision": "company-benchmark-launch-v1",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "repetitions": 1,
+        "ceilings": {
+          "maxTrialSlots": 2,
+          "maxRequests": 192,
+          "maxReportedCostUsd": 6
+        },
+        "blueprint": {
+          "id": "company-benchmark-retry_after-v1-blueprint",
+          "revision": 1,
+          "sha256": "66fc5b339ce5de42f4e1624e19cda4cc4d05018b6cdf7081e5663572e7db64d5"
+        },
+        "baseline": {
+          "id": "single-strong",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_single-strong",
+            "armId": "single-strong",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_2caf42599c9f660d0953175cd592e297",
+          "version": 1,
+          "campaignId": "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "retry_after",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ba99fc64c07892d54e15115bf04eb31ec5091755961d1d059ed794265ed5a22e",
+            "verifierId": "retry_after_hidden_v1",
+            "objectiveRevision": "retry_after_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-launch-v1",
+          "blueprint": {
+            "id": "company-benchmark-retry_after-v1-blueprint",
+            "revision": 1,
+            "sha256": "66fc5b339ce5de42f4e1624e19cda4cc4d05018b6cdf7081e5663572e7db64d5"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T01:35:38.483Z",
+          "completedAt": "2026-09-13T01:39:27.921Z",
+          "wallClockMs": 229438,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 228658,
+              "attemptLatenciesMs": [
+                228658
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 112274,
+                "outputTokens": 898,
+                "cachedInputTokens": 95232,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 145,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 20,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 53850,
+              "attemptLatenciesMs": [
+                53850
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 78416,
+                "outputTokens": 2161,
+                "cachedInputTokens": 59136,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 726,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 7,
+              "changedFiles": [
+                "src/retry-after.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 2,
+              "completedAttempts": 2,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 129509,
+              "attemptLatenciesMs": [
+                48301,
+                41490
+              ],
+              "usage": {
+                "requestsUsed": 2,
+                "usageReports": 2,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 96348,
+                "outputTokens": 3752,
+                "cachedInputTokens": 65024,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 2888,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 16,
+              "changedFiles": []
+            },
+            {
+              "role": "repair",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 36017,
+              "attemptLatenciesMs": [
+                36017
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 122582,
+                "outputTokens": 985,
+                "cachedInputTokens": 101376,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 259,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 9,
+              "changedFiles": [
+                "src/retry-after.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 5,
+            "usageReports": 5,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 409620,
+            "outputTokens": 7796,
+            "cachedInputTokens": 320768,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 4018,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_syntax",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_boundaries",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_dates",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 2,
+            "approved": 1,
+            "changesRequested": 1,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 1,
+            "affectedPaths": [
+              "src/retry-after.js"
+            ],
+            "evidenceItems": 24
+          },
+          "repairRounds": 1,
+          "interventions": {
+            "externalConfirmationRequests": 4,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 52,
+            "finalItems": 20
+          },
+          "changedFiles": [
+            "src/retry-after.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": [
+              "src/retry-after.js"
+            ]
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_6ab6883e1c1ede7ab840bfc253118ef4",
+          "version": 1,
+          "campaignId": "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48",
+          "slotId": "slot_1_single-strong",
+          "armId": "single-strong",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "retry_after",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "ba99fc64c07892d54e15115bf04eb31ec5091755961d1d059ed794265ed5a22e",
+            "verifierId": "retry_after_hidden_v1",
+            "objectiveRevision": "retry_after_objective_v1"
+          },
+          "harnessRevision": "recurs_0_1_0-alpha_11",
+          "launchProtocolRevision": "company-benchmark-launch-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T01:34:07.753Z",
+          "completedAt": "2026-09-13T01:35:38.185Z",
+          "wallClockMs": 90432,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 89472,
+              "attemptLatenciesMs": [
+                89472
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 76674,
+                "outputTokens": 3628,
+                "cachedInputTokens": 59136,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1534,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 1,
+              "changedFiles": [
+                "src/retry-after.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 76674,
+            "outputTokens": 3628,
+            "cachedInputTokens": 59136,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1534,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_syntax",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_boundaries",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_retry_after_dates",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 1,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 1,
+            "finalItems": 1
+          },
+          "changedFiles": [
+            "src/retry-after.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_ede470c3db7351d0de7d60cd0870e25e",
+          "version": 1,
+          "reservationId": "benchmark_reservation_2caf42599c9f660d0953175cd592e297",
+          "campaignId": "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T01:39:27.955Z",
+          "trialId": "benchmark_trial_2caf42599c9f660d0953175cd592e297",
+          "requestsCharged": 5,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.15625,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_bc3bc9401c41f2a11fe44b41723970f9",
+          "version": 1,
+          "reservationId": "benchmark_reservation_6ab6883e1c1ede7ab840bfc253118ef4",
+          "campaignId": "company-proof-61c66464-2c24-4cba-9897-8e8ff170ed48",
+          "slotId": "slot_1_single-strong",
+          "status": "completed",
+          "settledAt": "2026-09-13T01:35:38.335Z",
+          "trialId": "benchmark_trial_6ab6883e1c1ede7ab840bfc253118ef4",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03125,
+          "failureCode": null
+        }
+      ]
+    }
+  ]
+}

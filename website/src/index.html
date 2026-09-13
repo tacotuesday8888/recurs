@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f6f2">
+  <meta name="description" content="Recurs is an open-source coding-agent CLI. Choose your models, bound the team, and inspect its work. Explore the terminal and reproducible benchmark evidence.">
+  <title>Recurs — coding-agent teams you control</title>
+  <link rel="icon" href="./assets/recurs-mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="wrap">
+    <a class="brand" href="#" aria-label="Recurs home"><img src="./assets/recurs-mark.svg" width="28" height="28" alt="">recurs<span class="badge">ALPHA</span></a>
+    <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="#evidence">Evidence</a><a href="https://github.com/tacotuesday8888/recurs">GitHub ↗</a></nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" aria-labelledby="hero-title">
+      <p class="eyebrow">OPEN SOURCE · IN YOUR TERMINAL</p>
+      <h1 id="hero-title">Your models.<br>One coding team<span class="period">.</span></h1>
+      <div class="hero-bottom"><p>Choose the models. Set the limits.<br>Follow the work from first plan to final diff.</p><a class="button primary" href="#install">Install Recurs <span aria-hidden="true">↓</span></a></div>
+    </section>
+    <section class="wrap product" id="terminal" aria-label="Explore the Recurs terminal">
+      <div class="view-controls" role="group" aria-label="Terminal views">
+        <button type="button" data-view="working" aria-pressed="true">Working</button>
+        <button type="button" data-view="diff" aria-pressed="false">Reviewing a diff</button>
+        <button type="button" data-view="permission" aria-pressed="false">Approving a change</button>
+      </div>
+      <div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-v19-working.svg" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" alt="Recurs terminal showing active coding work and its agent floor"></div>
+      <form class="command-guide" id="command-guide">
+        <label for="command"><span aria-hidden="true">›</span><span class="sr-only">Explore a command</span></label>
+        <input id="command" name="command" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Explore /agents, /diff, /permissions, /help" aria-describedby="guide-result">
+        <button type="submit" aria-label="Explore command">↵</button>
+      </form>
+      <p id="guide-result" class="guide-result" role="status">Command guide · browse the interface here; run Recurs in your own terminal.</p>
+      <noscript><p>The captures and installation command work without JavaScript. The command guide needs JavaScript.</p></noscript>
+    </section>
+    <section class="wrap install" id="install" aria-labelledby="install-title">
+      <div><p class="eyebrow">GET STARTED</p><h2 id="install-title">Bring your own models.</h2><p>Install, run <code>recurs</code>, and connect a provider.</p></div>
+      <div class="install-action">
+        <div class="install-methods" role="group" aria-label="Installation method"><button data-install="npm" aria-pressed="true" type="button">npm</button><button data-install="bun" aria-pressed="false" type="button">Bun</button><button data-install="brew" aria-pressed="false" type="button">Homebrew</button></div>
+        <div class="install-command"><code id="install-command">npm install --global recurs@alpha</code><button id="copy-install" type="button" aria-label="Copy installation command">Copy</button></div>
+        <p class="fine" id="install-note">Node.js 22.22+ · macOS or Linux. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#install">Installation guide ↗</a></p>
+        <span id="copy-status" class="sr-only" role="status"></span>
+      </div>
+    </section>
+    <section class="wrap story" aria-labelledby="story-title">
+      <div class="section-heading"><p class="eyebrow">A TEAM WITH BOUNDARIES</p><h2 id="story-title">Delegate the work.<br>Keep the decisions.</h2></div>
+      <div class="story-steps">
+        <article><span class="step">01</span><div><h3>Choose who does what.</h3><p>Set the parent, implementation, review, and repair models. Bound delegation depth, concurrency, and requests.</p></div></article>
+        <article><span class="step">02</span><div><h3>See the work come back.</h3><p>Inspect child activity, review findings, and the resulting diff. Follow changes through implementation and independent review.</p></div></article>
+        <article><span class="step">03</span><div><h3>Decide what gets applied.</h3><p>Approve changes under your permission policy. Repair stays bounded; rejected work stays rejected.</p></div></article>
+      </div>
+    </section>
+    <section class="evidence-section" id="evidence" aria-labelledby="evidence-title">
+      <div class="wrap">
+        <div class="evidence-heading"><div><p class="eyebrow">MEASURED, NOT ASSUMED</p><h2 id="evidence-title">Does a team help?</h2></div><a class="text-link" href="./current-results.json" download>Download the fresh probe ↓</a></div>
+        <p class="evidence-intro">Both arms passed our fresh one-pair probe. The team repaired a review finding, but used more time and tokens than the single agent. This small sample and the historical study do not establish a team advantage.</p>
+        <div class="experiment-controls"><label for="campaign">Explore a campaign</label><select id="campaign" disabled>{{CAMPAIGN_OPTIONS}}</select></div>
+        <p id="campaign-context" class="context">{{CAMPAIGN_CONTEXT}}</p>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results, scroll horizontally on small screens">
+          <table><caption class="sr-only">Verified outcomes and measured resource use</caption><thead><tr><th scope="col">Configuration</th><th scope="col">Verified</th><th scope="col">Median time</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Reported cost</th></tr></thead><tbody id="results-body">{{RESULT_ROWS}}</tbody></table>
+        </div>
+        <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. The fresh probe ran the baseline first. Dollar cost is unavailable, not zero.</p>
+        <details><summary>Routes, interventions, and trial-level checks <span aria-hidden="true">+</span></summary><div id="trial-details">{{TRIAL_DETAILS}}</div></details>
+        <div class="method-grid">
+          <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
+          <div><h3>Small sample. Real limits.</h3><p>The fresh probe is one pair on a September 13, 2026 (UTC) alpha.11 candidate. Historical alpha.7 runs remain separate: four campaigns, two fixtures, including unmatched parents and an interruption. Neither set ranks models or proves a general advantage.</p></div>
+        </div>
+        <div class="evidence-links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/README.md">Reproduce the benchmark ↗</a><a href="./results.json" download>Download historical records ↓</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md">Read Round 2 ↗</a></div>
+      </div>
+    </section>
+    <section class="wrap closing"><img src="./assets/recurs-mark.svg" width="46" height="46" alt=""><h2>Open code.<br>Inspectable work.</h2><div><p>Recurs is an early alpha, licensed under Apache 2.0.<br>Try it on a repository you can review.</p><a class="button" href="https://github.com/tacotuesday8888/recurs">Explore the repository ↗</a></div></section>
+  </main>
+  <footer class="wrap"><span>recurs · {{VERSION}}</span><nav aria-label="Project links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/FEATURE_STATUS.md">Capabilities</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/SECURITY.md">Security</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/LICENSE">License</a></nav></footer>
+</body>
+</html>
