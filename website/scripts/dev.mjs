@@ -24,7 +24,7 @@ const routes = new Map([
 ]);
 for (const name of ["task-fit-results.json", "queue-verifier-audit.json"]) routes.set(`/${name}`, [name, "application/json"]);
 for (const name of ["task-fit-correction.md", "task-fit-results.md"]) routes.set(`/${name}`, [name, "text/plain; charset=utf-8"]);
-for (const name of ["terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg"]) {
+for (const name of ["recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg"]) {
   routes.set(`/assets/${name}`, [`assets/${name}`, "image/svg+xml"]);
 }
 

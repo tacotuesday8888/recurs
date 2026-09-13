@@ -20,7 +20,7 @@ test("static first render includes actual results and all campaign choices", () 
 });
 test("local asset links resolve and captures match repository sources byte for byte", async () => {
   for (const match of html.matchAll(/(?:src|href)="\.\/([^"#]+)"/gu)) await access(new URL(match[1], root));
-  for (const name of ["terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
+  for (const name of ["recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
     assert.deepEqual(await readFile(new URL(`assets/${name}`, root)), await readFile(new URL(`../../docs/assets/${name}`, import.meta.url)));
   }
 });

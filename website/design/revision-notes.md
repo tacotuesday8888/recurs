@@ -34,3 +34,7 @@ existing detailed campaign selector and tables into Inspect trials.
 | Multiple exposed tables | One metric explorer, overview, then native disclosure | Makes the comparison usable without a wall of numbers. |
 | Medians alone in primary view | Both trial observations, zero-based common scales | Makes the tiny sample and runtime variation visible. |
 | Unknown dollar costs | Explicit unavailable state | No invented prices, savings or zero-cost claim. |
+
+Header identity uses the exact existing GitHub README wordmark asset at a
+responsive readable size. Keep its orange pixels and charcoal backing intact.
+No new spinning or redrawn logo; the compact existing favicon stays separate.

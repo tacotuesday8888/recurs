@@ -26,7 +26,7 @@ if (compilerResult.code !== 0) process.exit(compilerResult.code ?? 1);
 for (const file of ["index.html", "styles.css"]) {
   await cp(join(source, file), join(output, file));
 }
-for (const asset of ["recurs-mark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
+for (const asset of ["recurs-mark.svg", "recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
   await cp(join(repository, "docs/assets", asset), join(output, "assets", asset));
 }
 

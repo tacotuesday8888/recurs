@@ -179,3 +179,8 @@ footer nav { font-size: 12px; gap: 24px; }
 .chart-tooltip::after { content: ""; position: absolute; inset: 100% 0 auto; height: 6px; }
 @media (hover:none) { .chart-point:focus-visible:not(.tooltip-dismissed) .chart-tooltip { display: none; } }
 #benchmark-chart.chart-touch .chart-tooltip { display: none; }
+
+.brand .wordmark { width: 180px; height: auto; }
+header { gap: 12px; }
+@media (max-width:760px) { .brand .wordmark { width: 140px; } }
+@media (max-width:380px) { header { flex-wrap: wrap; row-gap: 16px; } header nav { width: 100%; justify-content: space-between; } }
