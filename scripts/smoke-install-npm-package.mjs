@@ -888,7 +888,11 @@ try {
   assert(
     JSON.parse(benchmarkCatalog).scenarios?.map((scenario) => `${scenario.id}:${scenario.version}`)
       .join(",") ===
-      ["alias_registry:1", "layered_config:1", "retry_after:1", "options_precedence:1", "queue_cancellation:2", "workspace_maintenance:2"].join(","),
+      [
+        "alias_registry:1", "layered_config:1", "retry_after:1",
+        "options_precedence:1", "queue_cancellation:2", "workspace_maintenance:2",
+        "shipment_quote:1", "incremental_build_repair:1", "release_window_regressions:1",
+      ].join(","),
     "The installed CLI did not expose all immutable company-proof fixtures.",
   );
   assert(

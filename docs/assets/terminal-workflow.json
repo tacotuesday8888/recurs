@@ -3,21 +3,21 @@
   "captureCommand": "npm run package:smoke-terminal -- --update-capture --record-gif-frames",
   "provider": "deterministic local test provider",
   "modelBenchmark": false,
-  "installedArchiveSha256": "e58e87aef83dab350d97237c329c5baeb1da910a821d79ce5fd785d448562a77",
+  "installedArchiveSha256": "70646242df243bf5b1121a22ff0c9c149f02f0d95a272c6b3fffe199e79e7d41",
   "frameDurationMs": 100,
-  "frames": 92,
+  "frames": 90,
   "files": {
     "terminal-workflow.gif": {
-      "sha256": "ec53514aa6ace7835e8f3b20a682356f3bb63a11c13cb83858247dbed50880c6",
-      "bytes": 250463
+      "sha256": "534edf1c9f4233f9866a395592b2e4443088cdfa0fa92b7e2cfc36b1da904c19",
+      "bytes": 276643
     },
     "terminal-workflow.mp4": {
-      "sha256": "a4881e31634a5dedc5bbb16c404f6178938e874025bdef889b447f88ff3693d3",
-      "bytes": 331826
+      "sha256": "1f467f1239a868144c09dd59a0534ddbb99bede945e6b90a1bbcc84573654394",
+      "bytes": 301057
     },
     "terminal-patch.svg": {
-      "sha256": "3b79bb23f14db0354f11bcb19ec0aee9a822d47c6f385ff92135af8bc44f9e9f",
-      "bytes": 37404
+      "sha256": "8f0b8b8db9eab5caa211a26cf66d20f3fcd35a9d987866b1c3a2f701a7a8b83e",
+      "bytes": 37286
     }
   }
 }
