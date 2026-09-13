@@ -157,3 +157,16 @@ it("discovers new model IDs and preserves the selected model and effort on recon
   expect(next.primaryConnectionId).toBe(astra.id);
   expect(next.connections.find((entry) => entry.id === astra.id)?.reasoningEffort).toBe("high");
 });
+
+it("uses the provider's recommended default rather than alphabetical order", async () => {
+  const directory = await root();
+  const result = await setupCodexAppServerConnections(directory, {
+    accountSubjectFingerprint: `sha256:${"d".repeat(64)}`,
+    accountDisplayLabel: "Test subscription", billingSelection: "allow_declared_additional", now,
+    models: [
+      { id: "a-fast", displayName: "Fast", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["medium"] },
+      { id: "z-default", displayName: "Default", isDefault: true, defaultReasoningEffort: "high", supportedReasoningEfforts: ["high"] },
+    ],
+  });
+  expect(result.connections.find((record) => record.id === result.primaryConnectionId)).toMatchObject({ modelId: "z-default", reasoningEffort: "high" });
+});

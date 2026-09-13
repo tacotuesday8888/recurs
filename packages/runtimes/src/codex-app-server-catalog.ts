@@ -33,6 +33,7 @@ export class CodexAppServerCatalogError extends Error {
 
 export interface CodexSubscriptionModel {
   readonly id: string;
+  readonly isDefault?: boolean;
   readonly displayName: string;
   readonly defaultReasoningEffort: ModelReasoningEffort;
   readonly supportedReasoningEfforts: readonly ModelReasoningEffort[];
@@ -82,6 +83,7 @@ const modelListSchema = z.object({
     model: z.string().min(1).max(256),
     displayName: z.string().min(1).max(256),
     hidden: z.boolean(),
+    isDefault: z.boolean().optional(),
     supportedReasoningEfforts: z.array(z.object({
       reasoningEffort: reasoningEffortSchema,
       description: z.string().max(1_024),
@@ -380,6 +382,7 @@ export async function inspectCodexAppServerSubscription(
         }
         models.set(model.model, Object.freeze({
           id: model.model,
+          ...(model.isDefault === undefined ? {} : { isDefault: model.isDefault }),
           displayName: model.displayName,
           defaultReasoningEffort: model.defaultReasoningEffort,
           supportedReasoningEfforts: Object.freeze(

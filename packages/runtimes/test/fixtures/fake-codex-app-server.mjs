@@ -105,6 +105,7 @@ lines.on("line", (line) => {
         }]
       : [{
           id: "gpt-5.6-sol",
+          isDefault: true,
           model: "gpt-5.6-sol",
           displayName: "GPT-5.6 Sol",
           hidden: false,
