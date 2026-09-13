@@ -50,3 +50,16 @@ copyButton.addEventListener("click", () => {
 });
 
 installPageMotion(() => { showPoster(); recordingControl.textContent = "Play demo"; });
+
+document.querySelectorAll<HTMLButtonElement>("[data-inspect-task]").forEach(button => {
+  button.addEventListener("click", () => {
+    const evidence = document.querySelector<HTMLDetailsElement>(".product-evidence-details");
+    const task = document.querySelector<HTMLElement>(`[data-product-task="${button.dataset.inspectTask}"]`);
+    const attempts = task?.querySelector<HTMLDetailsElement>(".product-attempts");
+    if (!evidence || !task || !attempts) return;
+    evidence.open = true;
+    attempts.open = true;
+    attempts.querySelector("summary")?.focus({ preventScroll: true });
+    task.scrollIntoView({ block: "start", behavior: "instant" });
+  });
+});
