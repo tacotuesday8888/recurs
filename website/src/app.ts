@@ -82,6 +82,7 @@ async function loadEvidence() {
       document.querySelector("#trial-details")!.innerHTML = trialDetails(campaign);
       select.setAttribute("aria-label", `Explore a campaign: ${campaignName(campaign)}`);
     });
+    select.disabled = false;
   } catch {
     select.disabled = true;
     document.querySelector("#campaign-context")!.append(" · Interactive data unavailable; the default result remains below.");

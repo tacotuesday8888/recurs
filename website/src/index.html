@@ -59,7 +59,7 @@
       <div class="wrap">
         <div class="evidence-heading"><div><p class="eyebrow">MEASURED, NOT ASSUMED</p><h2 id="evidence-title">Does a team help?</h2></div><a class="text-link" href="./current-results.json" download>Download the fresh probe ↓</a></div>
         <p class="evidence-intro">Both arms passed our fresh one-pair probe. The team repaired a review finding, but used more time and tokens than the single agent. This small sample and the historical study do not establish a team advantage.</p>
-        <div class="experiment-controls"><label for="campaign">Explore a campaign</label><select id="campaign">{{CAMPAIGN_OPTIONS}}</select></div>
+        <div class="experiment-controls"><label for="campaign">Explore a campaign</label><select id="campaign" disabled>{{CAMPAIGN_OPTIONS}}</select></div>
         <p id="campaign-context" class="context">{{CAMPAIGN_CONTEXT}}</p>
         <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results, scroll horizontally on small screens">
           <table><caption class="sr-only">Verified outcomes and measured resource use</caption><thead><tr><th scope="col">Configuration</th><th scope="col">Verified</th><th scope="col">Median time</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Reported cost</th></tr></thead><tbody id="results-body">{{RESULT_ROWS}}</tbody></table>
@@ -67,7 +67,7 @@
         <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. Dollar cost is unavailable, not zero.</p>
         <details><summary>Routes, interventions, and trial-level checks <span aria-hidden="true">+</span></summary><div id="trial-details">{{TRIAL_DETAILS}}</div></details>
         <div class="method-grid">
-          <div><h3>Same task. Same parent.</h3><p>Fresh, byte-identical fixtures. Frozen model routes and effort. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
+          <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
           <div><h3>Small sample. Real limits.</h3><p>The fresh probe is one pair on a September 13, 2026 alpha.11 candidate. Historical alpha.7 runs remain separate: four campaigns, two fixtures, including unmatched parents and an interruption. Neither set ranks models or proves a general advantage.</p></div>
         </div>
         <div class="evidence-links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/README.md">Reproduce the benchmark ↗</a><a href="./results.json" download>Download historical records ↓</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md">Read Round 2 ↗</a></div>
