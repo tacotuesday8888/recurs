@@ -459,6 +459,12 @@ it becomes available. One company/team child produces one activation line.
 
 ## Headless runs
 
+`recurs run` is scripted, even when launched from a terminal. It requires a
+connection that permits scripted use. For Codex subscription chats, use the
+interactive CLI: start `recurs -C <dir>`, then enter your prompt there.
+Output format and permission flags do not change this requirement. Resuming a
+session keeps its saved connection, so it does not bypass the same restriction.
+
 ```bash
 recurs run "inspect the repository" --plan
 recurs run "fix the failing test" --permissions approved
