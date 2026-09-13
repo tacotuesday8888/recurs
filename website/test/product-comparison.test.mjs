@@ -192,3 +192,12 @@ test("optional review observation escapes text and rejects incomplete unsupporte
   assert.throws(() => renderProductComparison(syntheticProductComparison(), { version: 1 }));
   assert.doesNotMatch(renderProductComparison(syntheticProductComparison()), /product-review-story/u);
 });
+
+test("benchmark overview preserves all outcomes with twelve inspectable slots", async () => {
+  const html = await readFile(new URL("../.build/index.html", import.meta.url), "utf8");
+  assert.equal((html.match(/class="benchmark-slot /gu) ?? []).length, 12);
+  assert.equal((html.match(/class="benchmark-slot finished"/gu) ?? []).length, 5);
+  assert.equal((html.match(/class="benchmark-slot unfinished"/gu) ?? []).length, 5);
+  assert.equal((html.match(/class="benchmark-slot invalid"/gu) ?? []).length, 2);
+  assert.match(html, /Select it to inspect the result/u);
+});

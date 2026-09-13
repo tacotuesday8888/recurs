@@ -44,3 +44,28 @@
 .product-evidence-details > summary { width: fit-content; padding: 4px 0; color: var(--accent); font-size: 14px; }
 .product-evidence-content { padding-top: 12px; }
 .product-evidence-content > .evidence-intro { font-size: 14px; margin-block: 16px; }
+
+.benchmark-overview { margin: 34px 0 26px; max-width: 820px; }
+.benchmark-overview-head, .benchmark-overview-row { display: grid; grid-template-columns: 132px repeat(3, minmax(0, 1fr)); gap: 22px; align-items: center; }
+.benchmark-overview-head { margin-bottom: 16px; font-size: 13px; color: var(--muted); }
+.benchmark-overview-row + .benchmark-overview-row { margin-top: 12px; }
+.benchmark-arm { font-size: 14px; }
+.benchmark-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.benchmark-slot { min-height: 42px; padding: 6px; border: 1px solid var(--line); border-radius: 3px; font-size: 20px; line-height: 1; transition: opacity 120ms ease-out; }
+.benchmark-slot.finished, .benchmark-legend .finished { background: var(--accent); color: var(--canvas); border-color: var(--accent); }
+.benchmark-slot.unfinished, .benchmark-legend .unfinished { background: var(--paper); color: var(--muted); }
+.benchmark-slot.invalid, .benchmark-legend .invalid { background: repeating-linear-gradient(135deg, transparent 0 5px, var(--line) 5px 6px); color: var(--ink); }
+.benchmark-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.benchmark-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.benchmark-legend i { display: block; width: 12px; height: 12px; border: 1px solid var(--line); border-radius: 2px; }
+.benchmark-hint { color: var(--muted); font-size: 12px; margin-top: 12px; }
+.product-task { scroll-margin-top: 24px; }
+@media (hover: hover) and (pointer: fine) { .benchmark-slot:hover { opacity: .75; } }
+@media (max-width: 760px) {
+  .benchmark-overview-head, .benchmark-overview-row { grid-template-columns: 76px repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .benchmark-overview-head { font-size: 11px; align-items: end; }
+  .benchmark-arm { font-size: 12px; }
+  .benchmark-pair { gap: 4px; }
+  .benchmark-slot { min-height: 40px; padding: 3px; font-size: 16px; }
+  .benchmark-legend { gap: 10px 16px; }
+}
