@@ -36,6 +36,7 @@ import {
   RuntimeCompanyBenchmarkAdapter,
   companyBenchmarkBlueprintDigest,
 } from "./company-benchmark-execution.js";
+import { CodexControlBenchmarkAdapter, preflightCodexControlCampaign } from "./company-benchmark-codex-control.js";
 
 const MODE_ID = "balanced_v6";
 const REQUESTS_PER_SLOT = 96;
@@ -44,7 +45,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 export const COMPANY_BENCHMARK_USAGE = [
   "Usage: recurs benchmark company --list [--json]",
-  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--parent-connection <id>] [--implement-connection <id>] [--review-connection <id>] [--repair-connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--artifacts <directory>] [--json]",
+  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--parent-connection <id>] [--implement-connection <id>] [--review-connection <id>] [--repair-connection <id>] [--repetitions 1|2|3] [--control codex] [--compare-all-strong] [--artifacts <directory>] [--json]",
   "       recurs benchmark company --resume <campaign-id> --allow-network [--artifacts <directory>] [--json]",
 ].join("\n");
 
@@ -60,6 +61,7 @@ export type CompanyBenchmarkCommandOptions =
       >;
       readonly repetitions: 1 | 2 | 3;
       readonly compareAllStrong: boolean;
+      readonly control?: "codex";
       readonly json: boolean;
     }
   | {
@@ -118,6 +120,7 @@ export function parseCompanyBenchmarkCommand(
   let scenarioId = "alias_registry";
   let repetitions: 1 | 2 | 3 = 3;
   let compareAllStrong = false;
+  let control: "codex" | undefined;
   let resume: string | null = null;
   const seen = new Set<string>();
   for (let index = 1; index < argv.length; index += 1) {
@@ -131,6 +134,11 @@ export function parseCompanyBenchmarkCommand(
     else if (argument === "--allow-network") allowNetwork = true;
     else if (argument === "--compare-all-strong") compareAllStrong = true;
     else if (argument === "--json") json = true;
+    else if (argument === "--control") {
+      if (argumentValue(argv, index) !== "codex") throw new CompanyBenchmarkArgumentError("--control must be codex");
+      control = "codex";
+      index += 1;
+    }
     else if (argument === "--artifacts") {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--") || value.trim().length === 0 || value.includes("\0")) {
@@ -178,7 +186,7 @@ export function parseCompanyBenchmarkCommand(
     if (artifactsDirectory !== undefined || configured || allowNetwork || connectionId !== null ||
       Object.keys(roleConnectionIds).length > 0 ||
       resume !== null || repetitions !== 3 || scenarioId !== "alias_registry" ||
-      compareAllStrong) {
+      compareAllStrong || control !== undefined) {
       throw new CompanyBenchmarkArgumentError(
         "--list can be combined only with --json.",
       );
@@ -194,7 +202,7 @@ export function parseCompanyBenchmarkCommand(
     if (
       configured || connectionId !== null ||
       Object.keys(roleConnectionIds).length > 0 || repetitions !== 3 ||
-      scenarioId !== "alias_registry" || compareAllStrong
+      scenarioId !== "alias_registry" || compareAllStrong || control !== undefined
     ) {
       throw new CompanyBenchmarkArgumentError(
         "--resume uses the frozen campaign and accepts only --allow-network, --artifacts and --json.",
@@ -222,6 +230,7 @@ export function parseCompanyBenchmarkCommand(
     roleConnectionIds,
     repetitions,
     compareAllStrong,
+    ...(control === undefined ? {} : { control }),
     json,
   };
 }
@@ -288,6 +297,7 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
   >;
   readonly repetitions: 1 | 2 | 3;
   readonly compareAllStrong: boolean;
+  readonly control?: "codex";
   readonly campaignId: string;
   readonly createdAt: string;
 }): CompanyBenchmarkCampaignV1 {
@@ -339,14 +349,15 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
         }]
       : []),
   ];
+  const baselineId = input.control === "codex" ? "codex-cli" : "single-strong";
   const armOrder = Array.from(
     { length: input.repetitions },
     (_, index) => index + 1,
   ).flatMap((repetition) => {
     const companyIds = companyArms.map((arm) => arm.id);
     const armIds = repetition % 2 === 1
-      ? ["single-strong", ...companyIds]
-      : [...companyIds].reverse().concat("single-strong");
+      ? [baselineId, ...companyIds]
+      : [...companyIds].reverse().concat(baselineId);
     return armIds.map((armId) => ({
       slotId: companyBenchmarkTrialSlotId(armId, repetition),
       armId,
@@ -368,11 +379,13 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
       objectiveRevision: scenario.objectiveRevision,
     },
     harnessRevision: `recurs_${RECURS_VERSION.replaceAll(/[^A-Za-z0-9_-]/gu, "_")}`,
-    launchProtocolRevision: "company-benchmark-parent-only-v2",
+    launchProtocolRevision: input.control === "codex" ? "company-benchmark-codex-control-300s-v1" : "company-benchmark-parent-only-v2",
     operatingModeId: MODE_ID,
     operatingModeVersion: policy.version,
     permissionMode: "approved_for_me",
-    ...(companyParent.id === baselineParent.id
+    ...(input.control === "codex"
+      ? { comparisonDesign: "official_codex_control_v1" as const }
+      : companyParent.id === baselineParent.id
       ? {}
       : { comparisonDesign: "independent_company_parent_v1" as const }),
     repetitions: input.repetitions,
@@ -388,9 +401,9 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
       sha256: companyBenchmarkBlueprintDigest(blueprint),
     },
     baseline: {
-      id: "single-strong",
+      id: baselineId,
       kind: "single_agent",
-      configuredRoutes: [route("parent", baselineParent)],
+      configuredRoutes: [{ ...route("parent", baselineParent), ...(input.control === "codex" ? { adapterId: "codex-cli-exec" } : {}) }],
     },
     companyArms,
     armOrder,
@@ -455,15 +468,22 @@ export async function runCompanyBenchmarkCommand(
       roleConnectionIds: options.roleConnectionIds,
       repetitions: options.repetitions,
       compareAllStrong: options.compareAllStrong,
+      ...(options.control === undefined ? {} : { control: options.control }),
       campaignId: `company-proof-${(dependencies.createId ?? randomUUID)()}`,
       createdAt: (dependencies.now ?? (() => new Date().toISOString()))(),
     });
+    if (campaign.comparisonDesign === "official_codex_control_v1" && dependencies.createAdapter === undefined) {
+      await preflightCodexControlCampaign(campaign, dependencies.dataDirectory, dependencies.signal ?? new AbortController().signal);
+    }
     await state.campaigns.create(campaign, dependencies.signal);
   }
 
   const existing = (await state.trials.list(dependencies.signal)).filter(
     (trial) => trial.campaignId === campaign.id,
   );
+  if (options.action === "resume" && campaign.comparisonDesign === "official_codex_control_v1" && dependencies.createAdapter === undefined) {
+    await preflightCodexControlCampaign(campaign, dependencies.dataDirectory, dependencies.signal ?? new AbortController().signal);
+  }
   let completed = existing.length;
   await dependencies.onProgress?.({
     campaignId: campaign.id,
@@ -489,6 +509,12 @@ export async function runCompanyBenchmarkCommand(
         message: "Candidate artifact retention failed; the measured trial is preserved.",
       }),
     });
+  const control = campaign.comparisonDesign === "official_codex_control_v1"
+    ? new CodexControlBenchmarkAdapter({ sourceDataDirectory: dependencies.dataDirectory,
+      ...(options.artifactsDirectory === undefined ? {} : { artifactsDirectory: options.artifactsDirectory }) })
+    : null;
+  const setupStop = new AbortController();
+  const runnerSignal = dependencies.signal === undefined ? setupStop.signal : AbortSignal.any([dependencies.signal, setupStop.signal]);
   const runner = new CompanyBenchmarkRunner({
     trials: state.trials,
     summaries: state.summaries,
@@ -503,7 +529,19 @@ export async function runCompanyBenchmarkCommand(
           totalSlots: campaign.armOrder.length,
           message: `Running ${input.slot.armId} repetition ${input.slot.repetition}.`,
         });
-        const trial = await adapter.execute(input);
+        const deadline = new AbortController();
+        const timer = control === null ? undefined : setTimeout(() => deadline.abort(), 300_000);
+        timer?.unref();
+        let trial: CompanyBenchmarkTrialV1;
+        try {
+          const bounded = control === null ? input : { ...input, signal: input.signal === undefined ? deadline.signal : AbortSignal.any([input.signal, deadline.signal]) };
+          trial = await (control !== null && input.slot.armId === campaign.baseline.id && dependencies.createAdapter === undefined ? control : adapter).execute(bounded);
+        } finally { if (timer !== undefined) clearTimeout(timer); }
+        if (control !== null && (trial.failures.some(failure => failure.stage === "setup") ||
+          trial.executionStatus === "failed" && (trial.usage.requestsUsed === 0 || trial.armId === campaign.baseline.id))) {
+          // The runner persists this trial and settlement before observing cancellation at the next slot.
+          setupStop.abort(new Error("Codex comparison stopped after an invalid execution; inspect the retained trial"));
+        }
         completed += 1;
         await dependencies.onProgress?.({
           campaignId: campaign.id,
@@ -517,7 +555,7 @@ export async function runCompanyBenchmarkCommand(
     },
     ...(dependencies.now === undefined ? {} : { now: dependencies.now }),
   });
-  const summary = await runner.run(campaign, dependencies.signal);
+  const summary = await runner.run(campaign, runnerSignal);
   const trials = (await state.trials.list(dependencies.signal))
     .filter((trial) => trial.campaignId === campaign.id)
     .sort((left, right) =>

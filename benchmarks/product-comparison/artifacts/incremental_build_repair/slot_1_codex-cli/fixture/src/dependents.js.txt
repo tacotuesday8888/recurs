@@ -1,0 +1,5 @@
+export function affectedModules(graph, changed) {
+  const result = [...changed];
+  for (const name of Object.keys(graph)) if (graph[name].some(dep => changed.includes(dep))) result.push(name);
+  return result.sort();
+}

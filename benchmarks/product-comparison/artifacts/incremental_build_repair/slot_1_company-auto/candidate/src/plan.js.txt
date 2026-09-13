@@ -1,0 +1,12 @@
+import { diffSnapshots } from './changes.js';
+import { affectedModules } from './dependents.js';
+
+export function planBuild(graph, previous, current) {
+  const { changed, removed } = diffSnapshots(previous, current);
+  const seeds = changed.concat(removed);
+  const build = affectedModules(graph, seeds).filter(name =>
+    Object.prototype.hasOwnProperty.call(current, name)
+  );
+
+  return { changed, removed, build };
+}

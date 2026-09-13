@@ -1,0 +1,36 @@
+export function affectedModules(graph, changed) {
+  const names = Object.keys(graph);
+  const known = new Set(names);
+  const importers = new Map();
+
+  for (const name of names) {
+    for (const dependency of graph[name]) {
+      let modules = importers.get(dependency);
+      if (!modules) {
+        modules = [];
+        importers.set(dependency, modules);
+      }
+      modules.push(name);
+    }
+  }
+
+  const affected = new Set();
+  const pending = [];
+  for (const name of changed) {
+    if (known.has(name) && !affected.has(name)) {
+      affected.add(name);
+      pending.push(name);
+    }
+  }
+
+  for (let index = 0; index < pending.length; index += 1) {
+    for (const importer of importers.get(pending[index]) || []) {
+      if (!affected.has(importer)) {
+        affected.add(importer);
+        pending.push(importer);
+      }
+    }
+  }
+
+  return [...affected].sort();
+}

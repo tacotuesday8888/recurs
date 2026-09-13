@@ -1,0 +1,46 @@
+const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+
+function isIntegerInRange(value, minimum, maximum) {
+  return Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+function invalid() {
+  throw new TypeError('Invalid cart');
+}
+
+export function normalizeCart(items, catalog) {
+  if (!Array.isArray(items) || items.length > 100 ||
+      catalog === null || typeof catalog !== 'object' || Array.isArray(catalog)) {
+    invalid();
+  }
+
+  const merged = new Map();
+
+  for (const item of items) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item) ||
+        typeof item.sku !== 'string' || item.sku.length === 0 ||
+        !isIntegerInRange(item.quantity, 1, 1000) || !hasOwn(catalog, item.sku)) {
+      invalid();
+    }
+
+    const quantity = (merged.get(item.sku) ?? 0) + item.quantity;
+    merged.set(item.sku, quantity);
+  }
+
+  const lines = [];
+  for (const [sku, quantity] of merged) {
+    const entry = catalog[sku];
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry) ||
+        !isIntegerInRange(entry.unitCents, 0, 1000000) ||
+        !isIntegerInRange(entry.grams, 1, 100000) ||
+        !isIntegerInRange(entry.stock, 0, 1000000)) {
+      invalid();
+    }
+    if (quantity > entry.stock) {
+      throw new RangeError('Requested quantity exceeds stock');
+    }
+    lines.push({ sku, quantity, unitCents: entry.unitCents, grams: entry.grams });
+  }
+
+  return lines;
+}

@@ -394,12 +394,14 @@ export class RuntimeCompanyBenchmarkAdapter
           : { environment: this.#options.environment }),
         approvalHandler: companyBenchmarkApprovalHandler,
       });
+      input.signal?.throwIfAborted();
       recorder.registerParent(runtime.session.id, startedAtMs);
       try {
         if (arm.kind === "single_agent") {
           const goal = await runtime.submit(
             `/goal ${scenario.objective}`,
             LAUNCH_INVOCATION,
+            input.signal === undefined ? {} : { signal: input.signal },
           );
           if (isRunResult(goal)) {
             throw new TypeError(
@@ -407,11 +409,13 @@ export class RuntimeCompanyBenchmarkAdapter
             );
           }
         }
+        input.signal?.throwIfAborted();
         const response = await runtime.submit(
           arm.kind === "company"
             ? `/goal ${scenario.objective}`
             : scenario.objective,
           LAUNCH_INVOCATION,
+          input.signal === undefined ? {} : { signal: input.signal },
         );
         if (!isRunResult(response)) {
           throw new TypeError(

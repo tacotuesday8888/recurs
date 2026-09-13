@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "title": "Review flagged an edge case. Our audit confirmed the test gap.",
+  "reviewerObservation": "In Recurs’s second rebuild attempt, the independent reviewer flagged code that could include a non-enumerable property in the build. The published rules require own enumerable keys.",
+  "auditObservation": "Separately, our offline audit reproduced membership failures in three retained candidates that passed the frozen tests: two from Codex CLI and one from Recurs. A conforming reference passed every audit probe. The rejected second Recurs candidate was not retained, so this was not a replay of that candidate.",
+  "outcome": "The review concern was valid, but the repair did not deliver an accepted result. Recurs finished 2 of 6 declared attempts, compared with Codex CLI’s 3 of 6. These results do not establish an overall product ranking.",
+  "summary": "Recurs flagged a rebuild edge case, but the repair did not finish."
+}

@@ -1,0 +1,30 @@
+export function affectedModules(graph, changed) {
+  const reverse = new Map();
+  for (const importer of Object.keys(graph)) {
+    for (const dependency of graph[importer]) {
+      const importers = reverse.get(dependency);
+      if (importers) importers.push(importer);
+      else reverse.set(dependency, [importer]);
+    }
+  }
+
+  const affected = new Set();
+  const queue = [];
+  for (const name of changed) {
+    if (Object.prototype.hasOwnProperty.call(graph, name) && !affected.has(name)) {
+      affected.add(name);
+      queue.push(name);
+    }
+  }
+
+  for (let index = 0; index < queue.length; index += 1) {
+    for (const importer of reverse.get(queue[index]) ?? []) {
+      if (!affected.has(importer)) {
+        affected.add(importer);
+        queue.push(importer);
+      }
+    }
+  }
+
+  return [...affected].sort();
+}

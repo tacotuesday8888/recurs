@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "retainedDirectory": "trial-DjDr4F",
+  "scenarioId": "shipment_quote",
+  "scenarioVersion": 1,
+  "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+  "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+  "slotId": "slot_1_codex-cli",
+  "trialId": "benchmark_trial_2db7137a453fbecdf338a9e847e8d679",
+  "files": [
+    {
+      "path": "package.json",
+      "sha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e",
+      "fixtureSha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e"
+    },
+    {
+      "path": "README.md",
+      "sha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e",
+      "fixtureSha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e"
+    },
+    {
+      "path": "src/cart.js",
+      "sha256": "6b657a077d5ed39635fc31a7d277ef00079f6e8fb9b1e766ec3e4557720b5f60",
+      "fixtureSha256": "bd7c746f5091c0d72a52a3793b901fe5894b5a248618f7e26d87a2d8a186e020"
+    },
+    {
+      "path": "src/pricing.js",
+      "sha256": "87df710d921ac93d976d49ebbd307731b0d6ff13c5e4fb4fbab3815c3a646ab0",
+      "fixtureSha256": "a0b86821ef7a67627f1f1dca6325a19b270fa3b43667238197461255f8f6f3e7"
+    },
+    {
+      "path": "src/delivery.js",
+      "sha256": "88bd36a312ea55c8be2c4cd5bf35431de47a7780e055106b770494f4ea797b78",
+      "fixtureSha256": "c6aadcfb048f7326c8557b31fe1e9a261ab5f0bd3f3fcd4018c0c071157a56a9"
+    },
+    {
+      "path": "src/quote.js",
+      "sha256": "d3f786482d62d29c5b3f4b3ec16d3d122f67c6bfe173382c8a749fd0ce0fd004",
+      "fixtureSha256": "2ef4f0a9c2156fbcb673eb756e7dee526a0013ae92401bb1ee672c3e40dd6ac6"
+    },
+    {
+      "path": "test/visible.test.js",
+      "sha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e",
+      "fixtureSha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e"
+    }
+  ]
+}

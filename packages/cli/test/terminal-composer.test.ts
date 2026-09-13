@@ -9,7 +9,7 @@ function composer() {
   return new TerminalComposer(new TUI({ rows: 30 } as Terminal), {
     borderColor: theme.accent,
     selectList: { selectedPrefix: theme.accent, selectedText: theme.accent, description: theme.muted, scrollInfo: theme.muted, noMatch: theme.muted },
-  }, theme);
+  });
 }
 
 describe("terminal composer", () => {

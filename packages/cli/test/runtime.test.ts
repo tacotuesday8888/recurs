@@ -92,6 +92,50 @@ async function runtimeWith(
 }
 
 describe("RecursRuntime", () => {
+  it("forwards an external submission deadline to the running provider and removes its listener", async () => {
+    let began!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    let observed: AbortSignal | undefined;
+    const provider: ModelProvider = { id: "deadline-test", async *stream(request) {
+      observed = request.signal;
+      began();
+      await new Promise<void>(resolve => request.signal.addEventListener("abort", () => resolve(), { once: true }));
+      request.signal.throwIfAborted();
+      yield { type: "done", stopReason: "cancelled" };
+    } };
+    const runtime = await runtimeWith(provider);
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const submission = runtime.submit("bounded task", undefined, { signal: controller.signal });
+    const rejected = expect(submission).rejects.toThrow();
+    await started;
+    controller.abort();
+    await rejected;
+    expect(observed?.aborted).toBe(true);
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    await runtime.close();
+  });
+
+  it.each(["external", "runtime"] as const)("does not launch a new turn after %s cancellation during a slash command", async mode => {
+    const stream = vi.fn(async function* () { yield { type: "done" as const, stopReason: "complete" as const }; });
+    const runtime = await runtimeWith({ id: "transition-test", stream });
+    let finish!: () => void;
+    const waiting = new Promise<void>(resolve => { finish = resolve; });
+    const command = vi.spyOn(CommandRegistry.prototype, "execute").mockImplementation(async () => {
+      await waiting;
+      return { type: "submit_prompt", prompt: "must never run", executionMode: "act" };
+    });
+    const controller = new AbortController();
+    try {
+      const submission = runtime.submit("/goal pending", undefined, { signal: controller.signal });
+      const rejected = expect(submission).rejects.toThrow();
+      if (mode === "external") controller.abort(); else expect(runtime.cancel()).toBe(true);
+      finish();
+      await rejected;
+      expect(stream).not.toHaveBeenCalled();
+    } finally { command.mockRestore(); await runtime.close(); }
+  });
+
   it("supports exact session approval without exposing terminal controls", async () => {
     const runtime = await runtimeWith(new ScriptedProvider([]));
     let resource = "";

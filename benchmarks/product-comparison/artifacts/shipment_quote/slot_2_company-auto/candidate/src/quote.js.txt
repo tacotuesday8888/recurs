@@ -1,0 +1,16 @@
+import { normalizeCart } from './cart.js';
+import { priceCart } from './pricing.js';
+import { deliveryCost } from './delivery.js';
+
+export function quote(items, catalog, { zone = 'local', discountBps = 0 } = {}) {
+  const lines = normalizeCart(items, catalog);
+  const price = priceCart(lines, discountBps);
+  const totalGrams = lines.reduce((sum, line) => sum + line.quantity * line.grams, 0);
+  const deliveryCents = deliveryCost(totalGrams, price.merchandiseCents, zone);
+  return {
+    lines,
+    ...price,
+    deliveryCents,
+    totalCents: price.merchandiseCents + deliveryCents
+  };
+}

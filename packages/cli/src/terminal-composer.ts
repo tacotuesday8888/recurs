@@ -1,9 +1,8 @@
 import { Editor, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
-import type { TerminalTheme } from "./terminal-style.js";
 
 /** Keep the editor's cursor, wrapping and completion behavior inside a visible frame. */
 export class TerminalComposer extends Editor {
-  constructor(tui: TUI, editorTheme: EditorTheme, private readonly surface?: TerminalTheme) {
+  constructor(tui: TUI, editorTheme: EditorTheme) {
     super(tui, editorTheme, { paddingX: 1 });
   }
 
@@ -25,7 +24,7 @@ export class TerminalComposer extends Editor {
         return border(`╰${rule}╯`);
       }
       if (closed) return ` ${row} `;
-      return `${border("│")}${this.surface?.input(row) ?? row}${border("│")}`;
+      return `${border("│")}${row}${border("│")}`;
     });
   }
 }

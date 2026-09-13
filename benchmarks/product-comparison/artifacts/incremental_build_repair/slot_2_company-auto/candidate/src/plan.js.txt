@@ -1,0 +1,6 @@
+import { diffSnapshots } from './changes.js';
+import { affectedModules } from './dependents.js';
+export function planBuild(graph, previous, current) {
+  const delta = diffSnapshots(previous,current);
+  return {...delta,build:affectedModules(graph,delta.changed)};
+}

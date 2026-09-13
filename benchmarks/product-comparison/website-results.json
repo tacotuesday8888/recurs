@@ -1,0 +1,267 @@
+{
+  "version": 1,
+  "kind": "audited-product-comparison",
+  "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+  "auditedAt": "2026-09-13T22:26:47.561Z",
+  "auditHref": "https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/product-comparison/README.md",
+  "protocolHref": "https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/product-comparison/PLAN.md",
+  "configurations": [
+    {
+      "id": "codex-cli",
+      "routes": [
+        {
+          "role": "parent",
+          "modelId": "gpt-5.6-luna",
+          "reasoningEffort": "medium"
+        }
+      ]
+    },
+    {
+      "id": "company-auto",
+      "routes": [
+        {
+          "role": "parent",
+          "modelId": "gpt-5.6-luna",
+          "reasoningEffort": "medium"
+        },
+        {
+          "role": "implement",
+          "modelId": "gpt-5.6-terra",
+          "reasoningEffort": "medium"
+        },
+        {
+          "role": "review",
+          "modelId": "gpt-5.6-luna",
+          "reasoningEffort": "medium"
+        },
+        {
+          "role": "repair",
+          "modelId": "gpt-5.6-terra",
+          "reasoningEffort": "medium"
+        }
+      ]
+    }
+  ],
+  "tokenAccounting": {
+    "comparable": false,
+    "note": "Five retained native traces show no delegation events or external skill reads; this does not prove hermetic instruction isolation. The interrupted native attempt has no retained counters. Input includes cached input, and missing usage remains unknown. Per-attempt reported counters are preserved in the records; no token-efficiency or dollar-savings claim is supported."
+  },
+  "attempts": [
+    {
+      "scenarioId": "shipment_quote",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "passed",
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed.",
+      "elapsedMs": 108416,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 115091,
+        "cachedInputTokens": 91392,
+        "outputTokens": 5162
+      }
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "armId": "company-auto",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "passed",
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed.",
+      "elapsedMs": 182572,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 257506,
+        "cachedInputTokens": 205568,
+        "outputTokens": 6833
+      }
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "armId": "company-auto",
+      "repetition": 2,
+      "executionStatus": "completed",
+      "verificationStatus": "failed",
+      "workspaceIntegrity": "failed",
+      "sourceReview": "passed",
+      "validity": "invalid",
+      "note": "Invalid: the recorded 464.9 seconds exceeded the declared 300-second limit. Execution was recorded completed, but original grading failed. The exact retained source later passed the offline replay. That replay does not make the overrun a completed task.",
+      "elapsedMs": 464896,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 353001,
+        "cachedInputTokens": 279040,
+        "outputTokens": 6109
+      }
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "passed",
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed.",
+      "elapsedMs": 71159,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 88788,
+        "cachedInputTokens": 55040,
+        "outputTokens": 3141
+      }
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "failed",
+      "validity": "valid",
+      "note": "Frozen checks passed, but the published contract requires own enumerable keys. Offline source-audit probes reproduce missed additions/removals and invalid graph/build membership for non-enumerable own properties. This attempt fails source review.",
+      "elapsedMs": 51076,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 69882,
+        "cachedInputTokens": 53760,
+        "outputTokens": 2072
+      }
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "armId": "company-auto",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "failed",
+      "validity": "valid",
+      "note": "Frozen checks passed, but offline probes reproduce missed additions/removals and an invalid build selection for non-enumerable own properties, contrary to the published contract. This attempt fails source review.",
+      "elapsedMs": 127377,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 207868,
+        "cachedInputTokens": 145408,
+        "outputTokens": 3740
+      }
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "armId": "company-auto",
+      "repetition": 2,
+      "executionStatus": "failed",
+      "verificationStatus": "failed",
+      "workspaceIntegrity": "failed",
+      "sourceReview": "failed",
+      "validity": "valid",
+      "note": "The independent reviewer flagged an own-enumerable membership defect required by the public contract. The repair did not deliver an accepted candidate; the final workspace is the unchanged failing fixture. The same class of defect was reproduced in three other retained build candidates. The rejected candidate was not retained, so its exact behavior and the underlying repair failure cannot be independently verified.",
+      "elapsedMs": 162587,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 287014,
+        "cachedInputTokens": 207616,
+        "outputTokens": 5451
+      }
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "failed",
+      "validity": "valid",
+      "note": "Frozen checks passed, but offline probes reproduce missed additions/removals and invalid graph membership for non-enumerable own properties, contrary to the published contract. This attempt fails source review.",
+      "elapsedMs": 89714,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 121729,
+        "cachedInputTokens": 100352,
+        "outputTokens": 4098
+      }
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "passed",
+      "validity": "valid",
+      "note": "The checker accepted conforming APIs and rejected the three seeded behavioral mutants. Source review found valid explicit-time inputs and behavioral assertions without prohibited grading tricks.",
+      "elapsedMs": 123603,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 125170,
+        "cachedInputTokens": 87296,
+        "outputTokens": 5937
+      }
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "armId": "company-auto",
+      "repetition": 1,
+      "executionStatus": "completed",
+      "verificationStatus": "passed",
+      "workspaceIntegrity": "passed",
+      "sourceReview": "passed",
+      "validity": "valid",
+      "note": "The checker accepted conforming APIs and rejected the three seeded behavioral mutants. Source review found valid explicit-time inputs and behavioral assertions without prohibited grading tricks.",
+      "elapsedMs": 145461,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 207157,
+        "cachedInputTokens": 145408,
+        "outputTokens": 4721
+      }
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "armId": "company-auto",
+      "repetition": 2,
+      "executionStatus": "failed",
+      "verificationStatus": "failed",
+      "workspaceIntegrity": "failed",
+      "sourceReview": "failed",
+      "validity": "valid",
+      "note": "Implementation and one repair completed, but two reviews still requested changes. No candidate was accepted; the retained file is the no-op fixture and fails all three mutant groups. Rejected staged source is unavailable, and the retained diagnostics do not establish a runtime defect.",
+      "elapsedMs": 299345,
+      "usage": {
+        "coverage": "complete",
+        "inputTokens": 489207,
+        "cachedInputTokens": 392448,
+        "outputTokens": 11400
+      }
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "executionStatus": "cancelled",
+      "verificationStatus": "not_run",
+      "workspaceIntegrity": "not_run",
+      "sourceReview": "not_run",
+      "validity": "invalid",
+      "note": "Invalid: the final reserved native attempt was interrupted when the campaign controller was stopped. Offline recovery settled the reservation as interrupted with prior_attempt_outcome_unknown. No final trial, candidate, elapsed time or token counters were retained. Recovery budget charges are not measured usage or dollar cost.",
+      "elapsedMs": null,
+      "usage": {
+        "coverage": "none",
+        "inputTokens": null,
+        "cachedInputTokens": null,
+        "outputTokens": null
+      }
+    }
+  ]
+}

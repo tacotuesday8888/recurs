@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "title": "Fresh Codex subscription product tasks — all twelve declared slots",
+  "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+  "sourceState": "Frozen pre-run executable; cancellation fixes made afterward are not included in measured candidates.",
+  "executedArtifact": ".build/product-comparison/recurs.mjs",
+  "executedArtifactSha256": "492f054579645ac1197f33708ca02bdad55c1b6a63687f0dbade9363d9541137",
+  "selectionReason": "All twelve predeclared slots, including one Recurs deadline overrun and one interrupted Codex attempt. No outcome-based retries.",
+  "includeReservationInventory": true,
+  "campaignIds": [
+    "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+    "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+    "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f"
+  ]
+}

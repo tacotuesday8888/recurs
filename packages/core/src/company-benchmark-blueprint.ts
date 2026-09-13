@@ -6,6 +6,7 @@ import {
 } from "./company-blueprint-v2.js";
 import type { CompanyBenchmarkScenario } from "./company-benchmark-scenario.js";
 
+import { PRODUCT_TASK_SPECS } from "./company-benchmark-product-tasks.js";
 import { TASK_FIT_SPECS } from "./company-benchmark-task-fit.js";
 
 const CREATED_AT = "2026-07-24T00:00:00.000Z";
@@ -21,10 +22,11 @@ export function createCompanyBenchmarkBlueprint(
 ): CompanyBlueprintV2 {
   const legacyAlias = scenario.id === "alias_registry" &&
     scenario.version === 1;
-  const taskFit = TASK_FIT_SPECS.find((spec) => spec.id === scenario.id);
+  const productTask = PRODUCT_TASK_SPECS.find((spec) => spec.id === scenario.id);
+  const taskFit = productTask ?? TASK_FIT_SPECS.find((spec) => spec.id === scenario.id);
   const modulePaths = taskFit?.parallelScopes ?? [];
   const workerLimit = getOperatingModePolicy("balanced_v6").workflow.team!.maxImplementers;
-  const parallelScopes = scenario.version === 1 ? modulePaths : Array.from(
+  const parallelScopes = scenario.version === 1 && productTask === undefined ? modulePaths : Array.from(
     { length: Math.min(workerLimit, modulePaths.length) },
     (_, index) => modulePaths.filter((_, position) => position % workerLimit === index).join(", "),
   );
@@ -92,7 +94,7 @@ export function createCompanyBenchmarkBlueprint(
         responsibility: "Own the exact benchmark objective.",
         instructions: parallelScopes.length === 0
           ? "Delegate only the approved implementation and review."
-          : scenario.version === 1
+          : scenario.version === 1 && productTask === undefined
             ? "Delegate each independent module to its scoped worker concurrently, then run one combined independent review. Do not serialize independent implementation assignments."
             : "Delegate the approved worker scopes concurrently, with one assignment per worker. Each worker handles all files in its scope. Run one combined independent review afterward.",
         reportsToKey: null,

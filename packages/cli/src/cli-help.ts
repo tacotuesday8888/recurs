@@ -33,7 +33,7 @@ Usage:
   recurs hooks [--json]          Inspect bounded user lifecycle hooks
   recurs permissions [--json]    Inspect exact workspace permission rules
   recurs eval company [--json]   Run a bounded company-formation evaluation
-  recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
+  recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--control codex] [--compare-all-strong] [--json]
   recurs completion bash|zsh|fish  Print a shell completion script
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
@@ -210,10 +210,14 @@ Usage:
   recurs benchmark company --configured --allow-network
                            [--scenario <id>] [--connection <id>]
                            [--repetitions 1|2|3]
-                           [--compare-all-strong] [--json]
+                           [--control codex] [--compare-all-strong] [--json]
   recurs benchmark company --resume <campaign-id> --allow-network [--json]
 
-Each trial gets a byte-identical temporary fixture and private Recurs home.
+Each trial gets a byte-identical temporary fixture. Recurs also uses a private
+home. Add --control codex for the official Codex CLI control using the same
+saved subscription parent model and effort, with a five-minute limit per trial.
+Native Codex keeps its own tools; the team uses Recurs tools and saved routes.
+Token reports are provider counters; absent dollar costs remain unknown.
 The selected parent-only baseline and the currently configured saved role-route
 snapshot share the exact parent route. Add --compare-all-strong to explicitly
 schedule an additional all-strong company when saved worker routes differ.

@@ -1,0 +1,341 @@
+{
+  "version": 1,
+  "status": "declared_before_model_execution",
+  "declaredAt": "2026-09-13T20:51:51.581Z",
+  "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+  "nodeVersion": "v22.22.3",
+  "codexVersion": "0.145.0",
+  "recursBundle": ".build/product-comparison/recurs.mjs",
+  "recursBundleSha256": "492f054579645ac1197f33708ca02bdad55c1b6a63687f0dbade9363d9541137",
+  "codexBinarySha256": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+  "lockfileSha256": "cab0071b3c77180401ab3cca440c46f33cabcd2d2a611c4d19f3cc71bd7f66ba",
+  "planSha256": "f0c636b9c7268cfc05e7e69ae555abb41fd747748c07d42f3ad326091801065c",
+  "limits": {
+    "maxSlots": 12,
+    "trialDeadlineMs": 300000,
+    "campaignDeadlineMs": 3600000
+  },
+  "campaigns": [
+    {
+      "id": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "version": 1,
+      "createdAt": "2026-09-13T20:51:50.272Z",
+      "scenario": {
+        "id": "shipment_quote",
+        "version": 1,
+        "taskClass": "general_coding",
+        "difficulty": "medium",
+        "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+        "verifierId": "shipment_quote_hidden_v1",
+        "objectiveRevision": "shipment_quote_objective_v1"
+      },
+      "harnessRevision": "recurs_development",
+      "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+      "operatingModeId": "balanced_v6",
+      "operatingModeVersion": 6,
+      "permissionMode": "approved_for_me",
+      "comparisonDesign": "official_codex_control_v1",
+      "repetitions": 2,
+      "ceilings": {
+        "maxTrialSlots": 4,
+        "maxRequests": 384,
+        "maxReportedCostUsd": 12
+      },
+      "blueprint": {
+        "id": "company-benchmark-shipment_quote-v1-blueprint",
+        "revision": 1,
+        "sha256": "a217170285b472f4ff5e9e90011eb3ba9a2998d78114de2fedbd0a226110b7c7"
+      },
+      "baseline": {
+        "id": "codex-cli",
+        "kind": "single_agent",
+        "configuredRoutes": [
+          {
+            "role": "parent",
+            "providerId": "openai-codex-chatgpt",
+            "adapterId": "codex-cli-exec",
+            "connectionId": "route-eec892921ee5c42b675bfe31",
+            "modelId": "gpt-5.6-luna",
+            "reasoningEffort": "medium"
+          }
+        ]
+      },
+      "companyArms": [
+        {
+          "id": "company-auto",
+          "kind": "company",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ]
+        }
+      ],
+      "armOrder": [
+        {
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "repetition": 2
+        },
+        {
+          "slotId": "slot_2_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 2
+        }
+      ]
+    },
+    {
+      "id": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "version": 1,
+      "createdAt": "2026-09-13T20:51:50.275Z",
+      "scenario": {
+        "id": "incremental_build_repair",
+        "version": 1,
+        "taskClass": "general_coding",
+        "difficulty": "medium",
+        "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+        "verifierId": "incremental_build_repair_hidden_v1",
+        "objectiveRevision": "incremental_build_repair_objective_v1"
+      },
+      "harnessRevision": "recurs_development",
+      "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+      "operatingModeId": "balanced_v6",
+      "operatingModeVersion": 6,
+      "permissionMode": "approved_for_me",
+      "comparisonDesign": "official_codex_control_v1",
+      "repetitions": 2,
+      "ceilings": {
+        "maxTrialSlots": 4,
+        "maxRequests": 384,
+        "maxReportedCostUsd": 12
+      },
+      "blueprint": {
+        "id": "company-benchmark-incremental_build_repair-v1-blueprint",
+        "revision": 1,
+        "sha256": "d9e3fa32d56f4bd6225cd668e265fd0d783c93fc8175a3f1f77d5373ed7b61f5"
+      },
+      "baseline": {
+        "id": "codex-cli",
+        "kind": "single_agent",
+        "configuredRoutes": [
+          {
+            "role": "parent",
+            "providerId": "openai-codex-chatgpt",
+            "adapterId": "codex-cli-exec",
+            "connectionId": "route-eec892921ee5c42b675bfe31",
+            "modelId": "gpt-5.6-luna",
+            "reasoningEffort": "medium"
+          }
+        ]
+      },
+      "companyArms": [
+        {
+          "id": "company-auto",
+          "kind": "company",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ]
+        }
+      ],
+      "armOrder": [
+        {
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "repetition": 2
+        },
+        {
+          "slotId": "slot_2_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 2
+        }
+      ]
+    },
+    {
+      "id": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "version": 1,
+      "createdAt": "2026-09-13T20:51:50.276Z",
+      "scenario": {
+        "id": "release_window_regressions",
+        "version": 1,
+        "taskClass": "general_coding",
+        "difficulty": "medium",
+        "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+        "verifierId": "release_window_regressions_hidden_v1",
+        "objectiveRevision": "release_window_regressions_objective_v1"
+      },
+      "harnessRevision": "recurs_development",
+      "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+      "operatingModeId": "balanced_v6",
+      "operatingModeVersion": 6,
+      "permissionMode": "approved_for_me",
+      "comparisonDesign": "official_codex_control_v1",
+      "repetitions": 2,
+      "ceilings": {
+        "maxTrialSlots": 4,
+        "maxRequests": 384,
+        "maxReportedCostUsd": 12
+      },
+      "blueprint": {
+        "id": "company-benchmark-release_window_regressions-v1-blueprint",
+        "revision": 1,
+        "sha256": "0feaed933c72b1343c51188aa6afe532cdf56fdc9be9eff45af8b6cbafc76d49"
+      },
+      "baseline": {
+        "id": "codex-cli",
+        "kind": "single_agent",
+        "configuredRoutes": [
+          {
+            "role": "parent",
+            "providerId": "openai-codex-chatgpt",
+            "adapterId": "codex-cli-exec",
+            "connectionId": "route-eec892921ee5c42b675bfe31",
+            "modelId": "gpt-5.6-luna",
+            "reasoningEffort": "medium"
+          }
+        ]
+      },
+      "companyArms": [
+        {
+          "id": "company-auto",
+          "kind": "company",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-eec892921ee5c42b675bfe31",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-2173cb686527f2d53142d541",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ]
+        }
+      ],
+      "armOrder": [
+        {
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "repetition": 1
+        },
+        {
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "repetition": 2
+        },
+        {
+          "slotId": "slot_2_codex-cli",
+          "armId": "codex-cli",
+          "repetition": 2
+        }
+      ]
+    }
+  ]
+}

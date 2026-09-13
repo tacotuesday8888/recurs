@@ -1,0 +1,38 @@
+/* Uses the existing Recurs palette, typography and entry-motion hooks. */
+.product-comparison { border-bottom: 1px solid var(--line); }
+.product-comparison .evidence-heading h2 { max-width: 22ch; }
+.product-measures { min-width: 0; }
+.product-duration { display: block; font-variant-numeric: tabular-nums; }
+.product-outcome { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
+.product-comparison .task-comparison tbody tr:not(.completion-row) th,
+.product-comparison .task-comparison tbody tr:not(.completion-row) td { padding-block: 10px; vertical-align: top; }
+.product-attempts { margin-top: 20px; }
+.product-attempts summary, .product-configuration summary { font-size: 14px; }
+.product-attempts ol { margin: 0; padding: 0 22px 20px 42px; }
+.product-attempts li { margin-top: 16px; padding-left: 3px; font-size: 13px; }
+.product-attempts p { margin: 5px 0; overflow-wrap: anywhere; }
+.product-attempts p + p { color: var(--muted); }
+.product-configuration { max-width: 82ch; }
+.product-configuration ul { padding: 0 24px 0 42px; font-size: 14px; }
+.product-configuration li { margin-block: 10px; }
+.product-configuration p { padding: 0 24px 22px; color: var(--muted); font-size: 13px; max-width: 78ch; }
+.task-story .product-validity { margin-top: 16px; color: var(--ink); }
+.product-token-note { max-width: 85ch; margin-top: 14px; color: var(--muted); font-size: 13px; }
+@media (max-width:760px) {
+  .product-comparison .evidence-heading h2 { max-width: 24ch; }
+  .product-attempts ol { padding-right: 16px; padding-left: 34px; }
+}
+.product-review-story { margin-block: 28px; padding-block: 22px; border-block: 1px solid var(--line); max-width: 80ch; }
+.product-review-story h3 { font-size: 22px; line-height: 1.3; }
+.product-review-story p { margin-top: 12px; color: var(--muted); line-height: 1.6; }
+.product-review-story details { margin-top: 14px; }
+.product-review-story summary { cursor: pointer; width: fit-content; }
+
+.product-time-bar { display: block; height: 4px; margin-block: 9px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.product-time-bar > span { display: block; height: 100%; background: var(--muted); }
+.product-measures td:last-child .product-time-bar > span { background: var(--accent); }
+.product-method { margin-top: 18px; max-width: 85ch; }
+.product-method > p { padding-inline: 24px; }
+.product-method > p:last-child { padding-bottom: 22px; }
+
+.product-comparison .task-comparison tbody td { padding-left: 14px; }

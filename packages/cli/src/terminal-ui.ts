@@ -143,7 +143,7 @@ export class LaunchComponent implements Component {
       while (compact.length < terminalRows) compact.splice(compact.length - 1, 0, "");
       return compact;
     }
-    const openingBudget = this.#sessions.length === 0 ? Math.max(0, terminalRows - 13) : Math.min(7, Math.max(0, terminalRows - 13 - 2 * Math.min(this.#sessions.length, 6)));
+    const openingBudget = this.#sessions.length === 0 ? Math.max(0, terminalRows - 13) : Math.max(0, Math.min(9, terminalRows - 15));
     const opening = theme === undefined ? [] : renderTerminalOpening(safeWidth, openingBudget, theme, this.presentation.frame?.() ?? 0);
     const fixedRows = 11 + opening.length;
     const visibleSessions = Math.max(
@@ -714,7 +714,7 @@ class OnboardingComponent extends Container {
     const accent = theme.accent;
     const strong = theme.strong;
     const muted = theme.muted;
-    this.#editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme), theme);
+    this.#editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme));
     this.#footer = new Text(
       muted("↑↓ choose · Enter continue · PgUp/PgDn review · Esc cancel"),
       1,
@@ -916,6 +916,7 @@ export class ChatComponent extends Container {
   readonly #question = new Text();
   readonly #footer: Text;
   #empty = true;
+  #submitted = false;
   #scrollOffset = 0;
   #questionOffset = 0;
   #questionMaximumOffset = 0;
@@ -988,7 +989,7 @@ export class ChatComponent extends Container {
         current.running ? "running" : "ready", 0, colorEnabled, theme,
       )}${this.presentation?.workspace === undefined ? "" : `\n${muted(this.presentation.workspace())}`}`);
     };
-    this.editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme), theme);
+    this.editor = new TerminalComposer(tui, editorTheme(colorEnabled, theme));
     this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
         [...new Set([...commands, "theme"])].map((name) => ({ name })),
@@ -1004,7 +1005,10 @@ export class ChatComponent extends Container {
         this.#showNextQuestion();
         return;
       }
-      if (expanded.length > 0) this.onSubmit?.(expanded);
+      if (expanded.length > 0 && this.onSubmit != null) {
+        this.#submitted = true;
+        this.onSubmit(expanded);
+      }
     };
     this.#footer = new Text(
       muted("Enter send · Ctrl+O details · Ctrl+G team · Ctrl+T tasks · /help"),
@@ -1054,7 +1058,7 @@ export class ChatComponent extends Container {
     this.#previousTranscriptRows = transcript.length;
     this.#scrollOffset = Math.min(this.#scrollOffset, Math.max(0, transcript.length - available));
     const end = Math.max(0, transcript.length - this.#scrollOffset);
-    const opening = this.#empty && this.#pending === null && this.editor.getText().length === 0 && this.theme !== undefined
+    const opening = this.#empty && !this.#submitted && this.#pending === null && this.theme !== undefined
       ? this.presentation?.welcome?.(width, available) ?? renderTerminalOpening(width, available, this.theme, this.presentation?.frame() ?? 0) : [];
     const body = opening.length > 0 ? opening : available === 0 ? [] : transcript.slice(Math.max(0, end - available), end);
     while (body.length < available) body.push("");
@@ -1093,7 +1097,7 @@ export class ChatComponent extends Container {
 
   get hasQuestion(): boolean { return this.#pending !== null; }
 
-  get showsOpening(): boolean { return this.#empty && this.#pending === null && this.editor.getText().length === 0; }
+  get showsOpening(): boolean { return this.#empty && !this.#submitted && this.#pending === null; }
 
   refreshAppearance(): void { this.#transcript.invalidate(); this.editor.invalidate(); }
 
@@ -1495,7 +1499,7 @@ export class RecursInteractiveShell {
       { activity: this.#activity, frame: () => this.#frame, workspace: () => workspaceSummary, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
     );
     if (this.#transitionDraft) { chat.editor.setText(this.#transitionDraft); this.#transitionDraft = ""; }
-    const companyEditor = new TerminalComposer(tui, editorTheme(this.#colorEnabled, this.#theme), this.#theme);
+    const companyEditor = new TerminalComposer(tui, editorTheme(this.#colorEnabled, this.#theme));
     companyEditor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
         [...new Set([...runtime.commandNames(), "theme"])].map((name) => ({ name })),

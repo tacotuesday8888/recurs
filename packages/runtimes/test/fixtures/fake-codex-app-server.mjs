@@ -1,6 +1,7 @@
 /* global process */
 
 import readline from "node:readline";
+import { setTimeout } from "node:timers";
 
 const scenarioIndex = process.argv.indexOf("--scenario");
 const scenario = scenarioIndex === -1 ? "happy" : process.argv[scenarioIndex + 1];
@@ -16,6 +17,12 @@ let pendingServerRequest = null;
 let pendingRuntimeTurn = null;
 let initialized = false;
 const lines = readline.createInterface({ input: process.stdin });
+// These adversarial test servers stay alive after EOF. The runtime must close
+// its owned child using the configured shutdown bound; the watchdog avoids
+// leaving a fake process behind if a regression test fails.
+if (["runtime-cancel-no-terminal", "runtime-cancel-no-ack"].includes(scenario)) {
+  setTimeout(() => process.exit(1), 10_000);
+}
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -164,7 +171,7 @@ lines.on("line", (line) => {
       return;
     }
     send({ id: message.id, result: { turn: { id: "vendor-turn-1" } } });
-    if (scenario === "runtime-cancel") {
+    if (["runtime-cancel", "runtime-cancel-no-terminal", "runtime-cancel-no-ack", "runtime-cancel-completion-race"].includes(scenario)) {
       pendingRuntimeTurn = "vendor-turn-1";
       return;
     }
@@ -347,12 +354,28 @@ lines.on("line", (line) => {
     return;
   }
   if (message.method === "turn/interrupt") {
+    if (scenario === "runtime-cancel-no-ack") return;
     send({ id: message.id, result: {} });
+    if (["runtime-cancel-no-terminal", "runtime-cancel-completion-race"].includes(scenario)) {
+      send({
+        method: "thread/tokenUsage/updated",
+        params: {
+          threadId: "vendor-thread-1",
+          turnId: "vendor-turn-1",
+          tokenUsage: {
+            total: { inputTokens: 19, cachedInputTokens: 5, outputTokens: 7, reasoningOutputTokens: 2, totalTokens: 26 },
+            last: { inputTokens: 19, cachedInputTokens: 5, outputTokens: 7, reasoningOutputTokens: 2, totalTokens: 26 },
+            modelContextWindow: 1000,
+          },
+        },
+      });
+      if (scenario === "runtime-cancel-no-terminal") return;
+    }
     send({
       method: "turn/completed",
       params: {
         threadId: "vendor-thread-1",
-        turn: { id: pendingRuntimeTurn ?? "vendor-turn-1", status: "interrupted", error: null },
+        turn: { id: pendingRuntimeTurn ?? "vendor-turn-1", status: scenario === "runtime-cancel-completion-race" ? "completed" : "interrupted", error: null },
       },
     });
     pendingRuntimeTurn = null;

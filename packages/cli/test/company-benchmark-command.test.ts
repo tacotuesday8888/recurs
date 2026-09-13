@@ -90,6 +90,24 @@ function connection(
 }
 
 describe("company benchmark command", () => {
+  it("freezes the native Codex control and matched subscription parent", () => {
+    const options = parseCompanyBenchmarkCommand(["company", "--configured", "--allow-network", "--control", "codex"]);
+    expect(options).toMatchObject({ control: "codex" });
+    for (const args of [["company", "--list", "--control", "codex"], ["company", "--configured", "--allow-network", "--control", "fake"], ["company", "--resume", "id", "--allow-network", "--control", "codex"]]) {
+      expect(() => parseCompanyBenchmarkCommand(args)).toThrow();
+    }
+    const parent = connection("luna", "gpt-5.6-luna", "medium"), worker = connection("terra", "gpt-5.6-terra", "medium");
+    const document: ConnectionRegistryDocument = { schemaVersion: 2, revision: 1, primaryConnectionId: parent.id, connections: [parent, worker], agentRoutes: { implement: worker.id, review: parent.id, repair: worker.id } };
+    const input = { document, scenarioId: "shipment_quote", connectionId: parent.id, repetitions: 2 as const, compareAllStrong: false, campaignId: "native", createdAt: AT, control: "codex" as const };
+    const campaign = createConfiguredCompanyBenchmarkCampaign(input);
+    expect(campaign.comparisonDesign).toBe("official_codex_control_v1");
+    expect(campaign.launchProtocolRevision).toBe("company-benchmark-codex-control-300s-v1");
+    expect(campaign.armOrder.map(slot => slot.armId)).toEqual(["codex-cli", "company-auto", "company-auto", "codex-cli"]);
+    expect(campaign.baseline.configuredRoutes[0]).toMatchObject({ adapterId: "codex-cli-exec", connectionId: parent.id, modelId: parent.modelId });
+    expect(campaign.companyArms[0]!.configuredRoutes[0]).toMatchObject({ adapterId: "codex-app-server", connectionId: parent.id, modelId: parent.modelId });
+    expect(() => createConfiguredCompanyBenchmarkCampaign({ ...input, roleConnectionIds: { parent: worker.id } })).toThrow("same subscription parent");
+  });
+
   it("creates a contract-valid campaign for every latest scenario advertised by --list", () => {
     const parent = connection("luna-parent", "gpt-5.6-luna", "medium");
     const worker = connection("terra-worker", "gpt-5.6-terra", "medium");
@@ -104,6 +122,7 @@ describe("company benchmark command", () => {
     expect(listed.scenarios.map(({ id, version }) => `${id}:v${version}`)).toEqual([
       "alias_registry:v1", "layered_config:v1", "retry_after:v1",
       "options_precedence:v1", "queue_cancellation:v2", "workspace_maintenance:v2",
+      "shipment_quote:v1", "incremental_build_repair:v1", "release_window_regressions:v1",
     ]);
     for (const scenario of listed.scenarios) {
       const campaign = createConfiguredCompanyBenchmarkCampaign({

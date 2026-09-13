@@ -18,6 +18,25 @@ const plain = (rows: string[]) => stripVTControlCharacters(rows.join("\n"));
 const start = (activity: TerminalActivity, patch: string) => activity.emit({ ...base, type: "tool_started", call: { id: "patch", name: "apply_patch", arguments: { patch } } });
 
 describe("implemented terminal experience", () => {
+  it("keeps the animated opening while drafting, hides it on send and keeps the input surface neutral", () => {
+    const terminal = { columns: 80, rows: 30, write() {}, hideCursor() {}, showCursor() {} } as unknown as Terminal;
+    let frame = 0;
+    const chat = new ChatComponent(new TUI(terminal), new TranscriptBuffer(), { model: "model", mode: "balanced", permission: "ask_always" }, [], "/tmp", true, () => 30, undefined, theme, { activity: new TerminalActivity(), frame: () => frame });
+    chat.onSubmit = vi.fn();
+    chat.editor.setText("Please fix the UI");
+    expect(chat.showsOpening).toBe(true);
+    const first = chat.render(80);
+    frame = 12;
+    expect(chat.render(80)).not.toEqual(first);
+    const input = chat.editor.render(80).join("\n");
+    expect(input).toContain("╭");
+    expect(input).toContain("Please fix the UI");
+    expect(input).not.toContain("\u001b[48;");
+    chat.editor.onSubmit?.("Please fix the UI");
+    expect(chat.onSubmit).toHaveBeenCalledWith("Please fix the UI");
+    expect(chat.showsOpening).toBe(false);
+  });
+
   it("preserves pre-extraction terminal frames across color, compact sizes and rotation phases", async () => {
     const baseline = JSON.parse(await readFile(new URL("./fixtures/terminal-opening-frames.json", import.meta.url), "utf8")) as {
       samples: { width: number; height: number; colorEnabled: boolean; frame: number; sha256: string }[];

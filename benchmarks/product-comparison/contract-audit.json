@@ -1,0 +1,620 @@
+{
+  "version": 1,
+  "kind": "supplementary_offline_contract_audit",
+  "scenarioId": "incremental_build_repair",
+  "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+  "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+  "previousAudit": {
+    "path": "./candidate-audit.json",
+    "sha256": "c2d001c8c28a67a866111607329327ba5a0884237e482c5fa69d173a4430a686",
+    "sourceReviewMeaning": "The previous sourceReview field records absence of prohibited grading tricks, not complete published-contract compliance. Use this appendix contractReview field when determining audited completion."
+  },
+  "method": {
+    "execution": "Each candidate copied byte-for-byte to a separate fresh temporary workspace; network-denied read-only production runProcess sandbox; no model calls or network access; original records and frozen verifier untouched.",
+    "inputEncoding": "Each object is created with Object.defineProperties({}, ownProperties). Every descriptor is writable:true and configurable:true; value and enumerable are shown explicitly. Array values are copied. Other inputs are passed as displayed.",
+    "scope": "Four deterministic probes of explicitly published own-enumerable membership. These supplementary checks do not replace or rewrite frozen automated scores.",
+    "auditedCompletion": "The three candidates retain passing frozen automated replay scores, sourceIntegrity passed and contractReview failed; do not label them fully compliant completed tasks."
+  },
+  "probes": [
+    {
+      "id": "snapshot_non_enumerable_previous_is_absent",
+      "api": "diffSnapshots",
+      "inputs": {
+        "previous": {
+          "ownProperties": {
+            "lib": {
+              "value": "same",
+              "enumerable": false
+            }
+          }
+        },
+        "current": {
+          "ownProperties": {
+            "lib": {
+              "value": "same",
+              "enumerable": true
+            }
+          }
+        }
+      },
+      "expected": {
+        "changed": [
+          "lib"
+        ],
+        "removed": []
+      },
+      "requirement": "Snapshot membership uses only own enumerable keys; lib is added even when the previous object has a non-enumerable own lib property."
+    },
+    {
+      "id": "snapshot_non_enumerable_current_is_absent",
+      "api": "diffSnapshots",
+      "inputs": {
+        "previous": {
+          "ownProperties": {
+            "lib": {
+              "value": "same",
+              "enumerable": true
+            }
+          }
+        },
+        "current": {
+          "ownProperties": {
+            "lib": {
+              "value": "same",
+              "enumerable": false
+            }
+          }
+        }
+      },
+      "expected": {
+        "changed": [],
+        "removed": [
+          "lib"
+        ]
+      },
+      "requirement": "Snapshot membership uses only own enumerable keys; lib is removed when its current property is not enumerable."
+    },
+    {
+      "id": "graph_non_enumerable_seed_is_unknown",
+      "api": "affectedModules",
+      "inputs": {
+        "graph": {
+          "ownProperties": {
+            "app": {
+              "value": [],
+              "enumerable": true
+            },
+            "hidden": {
+              "value": [],
+              "enumerable": false
+            }
+          }
+        },
+        "changed": [
+          "hidden"
+        ]
+      },
+      "expected": [],
+      "requirement": "Ignore changed names that are not own enumerable keys of graph."
+    },
+    {
+      "id": "plan_excludes_non_enumerable_current_module",
+      "api": "planBuild",
+      "inputs": {
+        "graph": {
+          "ownProperties": {
+            "app": {
+              "value": [
+                "lib"
+              ],
+              "enumerable": true
+            },
+            "lib": {
+              "value": [],
+              "enumerable": true
+            }
+          }
+        },
+        "previous": {
+          "ownProperties": {
+            "app": {
+              "value": "a",
+              "enumerable": true
+            },
+            "lib": {
+              "value": "old",
+              "enumerable": true
+            }
+          }
+        },
+        "current": {
+          "ownProperties": {
+            "app": {
+              "value": "a",
+              "enumerable": false
+            },
+            "lib": {
+              "value": "new",
+              "enumerable": true
+            }
+          }
+        }
+      },
+      "expected": {
+        "changed": [
+          "lib"
+        ],
+        "removed": [
+          "app"
+        ],
+        "build": [
+          "lib"
+        ]
+      },
+      "requirement": "Seed from changed plus removed and filter build to own enumerable keys of current; app is absent from the current snapshot."
+    }
+  ],
+  "reference": {
+    "source": "export function diffSnapshots(previous,current) {\n const previousNames=new Set(Object.keys(previous)),currentNames=new Set(Object.keys(current));\n return {changed:[...currentNames].filter(name=>!previousNames.has(name)||previous[name]!==current[name]).sort(),removed:[...previousNames].filter(name=>!currentNames.has(name)).sort()};\n}\nexport function affectedModules(graph,changed) {\n const known=new Set(Object.keys(graph)),reverse=new Map();\n for(const name of known)for(const dependency of graph[name]){if(!reverse.has(dependency))reverse.set(dependency,new Set());reverse.get(dependency).add(name);}\n const found=new Set(changed.filter(name=>known.has(name))),queue=[...found];\n for(let i=0;i<queue.length;i++)for(const importer of reverse.get(queue[i])??[]){if(!found.has(importer)){found.add(importer);queue.push(importer);}}\n return [...found].sort();\n}\nexport function planBuild(graph,previous,current) {\n const delta=diffSnapshots(previous,current),currentNames=new Set(Object.keys(current));\n return {...delta,build:affectedModules(graph,[...delta.changed,...delta.removed]).filter(name=>currentNames.has(name))};\n}\n",
+    "sha256": "dda57d46733c78b49ade5ca9b6ea157abe3d3eb109dd58f9b88c78123ae4273e"
+  },
+  "candidates": [
+    {
+      "directory": "conforming_reference",
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "files": [],
+      "sourceLines": [],
+      "results": [
+        {
+          "id": "snapshot_non_enumerable_previous_is_absent",
+          "status": "passed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": []
+          },
+          "actual": {
+            "changed": [
+              "lib"
+            ],
+            "removed": []
+          }
+        },
+        {
+          "id": "snapshot_non_enumerable_current_is_absent",
+          "status": "passed",
+          "expected": {
+            "changed": [],
+            "removed": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [],
+            "removed": [
+              "lib"
+            ]
+          }
+        },
+        {
+          "id": "graph_non_enumerable_seed_is_unknown",
+          "status": "passed",
+          "expected": [],
+          "actual": []
+        },
+        {
+          "id": "plan_excludes_non_enumerable_current_module",
+          "status": "passed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [
+              "app"
+            ],
+            "build": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [
+              "app"
+            ],
+            "build": [
+              "lib"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "directory": "trial-CGjm7K",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_company-auto",
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "files": [
+        {
+          "path": "src/changes.js",
+          "sha256": "b0708f76a18caae8e96764a46b4b6aa98f82c6f5b12df51e01533401bb79cc8c"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "116ca5bd681a143b780df4cc235d88a10974ea676f792a5baba6913e21f0f36b"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "6ca6acd10602f01f165e3920df21ba586427d042fa23761849d74b84f95a0f76"
+        }
+      ],
+      "sourceLines": [
+        {
+          "path": "src/changes.js",
+          "line": 2,
+          "text": "  const hasOwn = Object.prototype.hasOwnProperty;"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 6,
+          "text": "  for (const name of Object.keys(current)) {"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 7,
+          "text": "    if (!hasOwn.call(previous, name) || previous[name] !== current[name]) {"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 12,
+          "text": "  for (const name of Object.keys(previous)) {"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 13,
+          "text": "    if (!hasOwn.call(current, name)) {"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 2,
+          "text": "  const names = Object.keys(graph);"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 20,
+          "text": "    if (known.has(name) && !affected.has(name)) {"
+        },
+        {
+          "path": "src/plan.js",
+          "line": 8,
+          "text": "    Object.prototype.hasOwnProperty.call(current, name)"
+        }
+      ],
+      "results": [
+        {
+          "id": "snapshot_non_enumerable_previous_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": []
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "snapshot_non_enumerable_current_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [],
+            "removed": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "graph_non_enumerable_seed_is_unknown",
+          "status": "passed",
+          "expected": [],
+          "actual": []
+        },
+        {
+          "id": "plan_excludes_non_enumerable_current_module",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [
+              "app"
+            ],
+            "build": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [],
+            "build": [
+              "app",
+              "lib"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "directory": "trial-EsPVZn",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_codex-cli",
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "files": [
+        {
+          "path": "src/changes.js",
+          "sha256": "708c4017fa64a8037901f88bb028fcba354c148b377779862b5cdbc4eae2ccab"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "63f2dc7ec4c8982ca820c04c3111cd38558d5f24ecf927785f16a5c51936d0c8"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "b7c8e2a7e4cae2e8f85e9afde8b6de263c6e7cb9e02f7d943f5fa272f6b7811f"
+        }
+      ],
+      "sourceLines": [
+        {
+          "path": "src/changes.js",
+          "line": 2,
+          "text": "  const previousNames = Object.keys(previous);"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 3,
+          "text": "  const currentNames = Object.keys(current);"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 4,
+          "text": "  const previousHas = name => Object.prototype.hasOwnProperty.call(previous, name);"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 5,
+          "text": "  const currentHas = name => Object.prototype.hasOwnProperty.call(current, name);"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 9,
+          "text": "      .filter(name => !previousHas(name) || previous[name] !== current[name])"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 3,
+          "text": "  for (const importer of Object.keys(graph)) {"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 14,
+          "text": "    if (Object.prototype.hasOwnProperty.call(graph, name) && !affected.has(name)) {"
+        },
+        {
+          "path": "src/plan.js",
+          "line": 6,
+          "text": "  const currentNames = new Set(Object.keys(current));"
+        },
+        {
+          "path": "src/plan.js",
+          "line": 9,
+          "text": "    build: affected.filter(name => currentNames.has(name)),"
+        }
+      ],
+      "results": [
+        {
+          "id": "snapshot_non_enumerable_previous_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": []
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "snapshot_non_enumerable_current_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [],
+            "removed": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "graph_non_enumerable_seed_is_unknown",
+          "status": "failed",
+          "expected": [],
+          "actual": [
+            "hidden"
+          ]
+        },
+        {
+          "id": "plan_excludes_non_enumerable_current_module",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [
+              "app"
+            ],
+            "build": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [],
+            "build": [
+              "lib"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "directory": "trial-oGtkuW",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_codex-cli",
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "files": [
+        {
+          "path": "src/changes.js",
+          "sha256": "943ad7ed412a291c73b5bfe8df08a8d8732c4bc2e265d4f8e11cbb143ad27d5d"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "96fad6d816eaf725f5f23e4359f295e55ff2a98e7b8f17dace5d38f01fce28b5"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "88e01d77b49ba1f6078b18fd9ba62324b9909db8f873fe0e5c6436766c81c0ed"
+        }
+      ],
+      "sourceLines": [
+        {
+          "path": "src/changes.js",
+          "line": 2,
+          "text": "  const hasOwn = Object.prototype.hasOwnProperty;"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 3,
+          "text": "  const changed = Object.keys(current).filter(name =>"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 4,
+          "text": "    !hasOwn.call(previous, name) || previous[name] !== current[name]"
+        },
+        {
+          "path": "src/changes.js",
+          "line": 6,
+          "text": "  const removed = Object.keys(previous).filter(name => !hasOwn.call(current, name));"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 3,
+          "text": "  for (const moduleName of Object.keys(graph)) {"
+        },
+        {
+          "path": "src/dependents.js",
+          "line": 14,
+          "text": "    if (Object.prototype.hasOwnProperty.call(graph, name) && !affected.has(name)) {"
+        },
+        {
+          "path": "src/plan.js",
+          "line": 6,
+          "text": "  const hasOwn = Object.prototype.hasOwnProperty;"
+        },
+        {
+          "path": "src/plan.js",
+          "line": 10,
+          "text": "    build: affected.filter(name => hasOwn.call(current, name)),"
+        }
+      ],
+      "results": [
+        {
+          "id": "snapshot_non_enumerable_previous_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": []
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "snapshot_non_enumerable_current_is_absent",
+          "status": "failed",
+          "expected": {
+            "changed": [],
+            "removed": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [],
+            "removed": []
+          }
+        },
+        {
+          "id": "graph_non_enumerable_seed_is_unknown",
+          "status": "failed",
+          "expected": [],
+          "actual": [
+            "hidden"
+          ]
+        },
+        {
+          "id": "plan_excludes_non_enumerable_current_module",
+          "status": "failed",
+          "expected": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [
+              "app"
+            ],
+            "build": [
+              "lib"
+            ]
+          },
+          "actual": {
+            "changed": [
+              "lib"
+            ],
+            "removed": [],
+            "build": [
+              "app",
+              "lib"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "originalPrivateAppendixSha256": "4381af8e8eba6dddd30ea0e1625c40144d5db41b51988a8305e76d1af6e7b3a7"
+}

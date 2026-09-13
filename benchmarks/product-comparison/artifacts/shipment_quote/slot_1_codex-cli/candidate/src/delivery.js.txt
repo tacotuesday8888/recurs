@@ -1,0 +1,12 @@
+export function deliveryCost(totalGrams, merchandiseCents, zone) {
+  if (!Number.isInteger(totalGrams) || totalGrams < 0 || totalGrams > 10_000_000_000 ||
+      !Number.isInteger(merchandiseCents) || merchandiseCents < 0 || merchandiseCents > 100_000_000_000 ||
+      (zone !== 'local' && zone !== 'remote')) {
+    throw new TypeError('Invalid delivery input');
+  }
+  if (totalGrams === 0) return 0;
+
+  const kilograms = Math.ceil(totalGrams / 1000);
+  if (zone === 'local' && merchandiseCents >= 5000) return 0;
+  return zone === 'local' ? 500 + 200 * kilograms : 900 + 350 * kilograms;
+}

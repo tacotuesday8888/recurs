@@ -1,0 +1,1022 @@
+{
+  "version": 1,
+  "kind": "audited_product_comparison",
+  "auditedAt": "2026-09-13T22:26:47.561Z",
+  "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+  "declarationSha256": "ba4563ab89746eacf85c71c5b9e134b38a4628e0ab9421e43f862316e903ad2b",
+  "resultsSha256": "da7cfe4f4c45fac34fa7896647ad05e96b6742536fc5e30805595f2e9ce9dcb6",
+  "selectionSha256": "a117c04d9fa7c1ad5717e240f2b96aa3b02c932c0aefa6686def79122cbd3dde",
+  "candidateAuditSha256": "c2d001c8c28a67a866111607329327ba5a0884237e482c5fa69d173a4430a686",
+  "contractAuditSha256": "c6975daea581c9bb564ee8110036b610af5ae713dcbd5fad845493a535d9e35d",
+  "nativeEventInventorySha256": "d096acbe86ca67ed3c388db33ce1f30f840b2e6be607676c3d1f1304b6f99735",
+  "repairDiagnosticsSha256": "282b173f7d2205508301ac8b32bfa989d23668b83c9d14bec4888c13999a81e3",
+  "definitions": {
+    "sourceIntegrity": "No prohibited oracle/introspection/global-tampering tricks were found. This is the initial candidate-audit sourceReview field, not complete contract compliance.",
+    "contractReview": "Manual published-rule review plus the supplementary offline contract probes; three repaired build candidates fail despite frozen automated passes, and two unchanged fixtures fail the task.",
+    "completed": "Valid attempt, completed execution, original passing workspace/task verification, and passing contract review. Offline replay success cannot rescue an invalid overrun.",
+    "frozenRecords": "results.json and selection.json preserve the original normalized records and recovery settlement. Review does not rewrite those grades. Settlement costChargedUsd/requestsCharged can be reservation bookkeeping, especially recovery; they are not measured dollar bills/model calls.",
+    "limits": "Twelve declared slots, 300000 ms each, 3600000 ms outer deadline; all slots were reserved before controller stop. No retries or model reruns in this audit."
+  },
+  "records": [
+    {
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_1_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "trialId": "benchmark_trial_2db7137a453fbecdf338a9e847e8d679",
+      "settlementId": "benchmark_settlement_ac15af45920d2fde4152677a6defc978",
+      "retainedDirectory": "trial-DjDr4F",
+      "snapshotManifest": "./artifacts/shipment_quote/slot_1_codex-cli/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed."
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_1_company-auto",
+      "armId": "company-auto",
+      "repetition": 1,
+      "trialId": "benchmark_trial_6233ec1471b7bb492a99d162bc05f046",
+      "settlementId": "benchmark_settlement_4cda84729bd4309a100f74104975dcb4",
+      "retainedDirectory": "trial-m7rmxE",
+      "snapshotManifest": "./artifacts/shipment_quote/slot_1_company-auto/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed."
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_2_company-auto",
+      "armId": "company-auto",
+      "repetition": 2,
+      "trialId": "benchmark_trial_d64c19fc9965c15c3c99d3fcfc5b2d11",
+      "settlementId": "benchmark_settlement_dd55b6b2cd428ce4cb7da6c48c538704",
+      "retainedDirectory": "trial-q3jpDP",
+      "snapshotManifest": "./artifacts/shipment_quote/slot_2_company-auto/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "failed",
+        "workspaceIntegrity": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "failed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "invalid",
+      "note": "Invalid: the recorded 464.9 seconds exceeded the declared 300-second limit. Execution was recorded completed, but original grading failed. The exact retained source later passed the offline replay. That replay does not make the overrun a completed task."
+    },
+    {
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_2_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "trialId": "benchmark_trial_282ff85c468a155806baa318849e00a7",
+      "settlementId": "benchmark_settlement_ecc83df31247fe71c4f78b91bb1d0f68",
+      "retainedDirectory": "trial-I64g8i",
+      "snapshotManifest": "./artifacts/shipment_quote/slot_2_codex-cli/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks, retained-candidate replay and published-rule source review passed."
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "trialId": "benchmark_trial_b6bc7c3faa51f1f56c9837178070075f",
+      "settlementId": "benchmark_settlement_271bcdf3f113db269bd1cc99d1a1f811",
+      "retainedDirectory": "trial-oGtkuW",
+      "snapshotManifest": "./artifacts/incremental_build_repair/slot_1_codex-cli/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks passed, but the published contract requires own enumerable keys. Offline source-audit probes reproduce missed additions/removals and invalid graph/build membership for non-enumerable own properties. This attempt fails source review."
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_company-auto",
+      "armId": "company-auto",
+      "repetition": 1,
+      "trialId": "benchmark_trial_da51c2d91603a4fcae920b166b11c89c",
+      "settlementId": "benchmark_settlement_b3269442e46e953dbdc6570e55759e45",
+      "retainedDirectory": "trial-CGjm7K",
+      "snapshotManifest": "./artifacts/incremental_build_repair/slot_1_company-auto/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks passed, but offline probes reproduce missed additions/removals and an invalid build selection for non-enumerable own properties, contrary to the published contract. This attempt fails source review."
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_company-auto",
+      "armId": "company-auto",
+      "repetition": 2,
+      "trialId": "benchmark_trial_2a8c8044c5caf6907a83579ca947c1cb",
+      "settlementId": "benchmark_settlement_577322704d3b885af420ccb26653e039",
+      "retainedDirectory": "trial-fnDlDe",
+      "snapshotManifest": "./artifacts/incremental_build_repair/slot_2_company-auto/manifest.json",
+      "recordedExecutionStatus": "failed",
+      "recordedVerification": {
+        "status": "failed",
+        "workspaceIntegrity": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "failed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "offlineReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "failed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "The independent reviewer flagged an own-enumerable membership defect required by the public contract. The repair did not deliver an accepted candidate; the final workspace is the unchanged failing fixture. The same class of defect was reproduced in three other retained build candidates. The rejected candidate was not retained, so its exact behavior and the underlying repair failure cannot be independently verified."
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "trialId": "benchmark_trial_9bbd7099f75e3220696504e43012fbe6",
+      "settlementId": "benchmark_settlement_71005c76e548e2502d761acc1b149770",
+      "retainedDirectory": "trial-EsPVZn",
+      "snapshotManifest": "./artifacts/incremental_build_repair/slot_2_codex-cli/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Frozen checks passed, but offline probes reproduce missed additions/removals and invalid graph membership for non-enumerable own properties, contrary to the published contract. This attempt fails source review."
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_1_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 1,
+      "trialId": "benchmark_trial_8e8a027bd323a39cc2c29611e2188749",
+      "settlementId": "benchmark_settlement_58174e31c0fde205f5a6a12c3ab06575",
+      "retainedDirectory": "trial-4JrPw8",
+      "snapshotManifest": "./artifacts/release_window_regressions/slot_1_codex-cli/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "The checker accepted conforming APIs and rejected the three seeded behavioral mutants. Source review found valid explicit-time inputs and behavioral assertions without prohibited grading tricks."
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_1_company-auto",
+      "armId": "company-auto",
+      "repetition": 1,
+      "trialId": "benchmark_trial_23999aacf73368d5581eb8fb9d1ad80c",
+      "settlementId": "benchmark_settlement_d7171f3fa398120259b48432faf42936",
+      "retainedDirectory": "trial-uiUloN",
+      "snapshotManifest": "./artifacts/release_window_regressions/slot_1_company-auto/manifest.json",
+      "recordedExecutionStatus": "completed",
+      "recordedVerification": {
+        "status": "passed",
+        "workspaceIntegrity": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "passed",
+      "offlineReplay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "The checker accepted conforming APIs and rejected the three seeded behavioral mutants. Source review found valid explicit-time inputs and behavioral assertions without prohibited grading tricks."
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_2_company-auto",
+      "armId": "company-auto",
+      "repetition": 2,
+      "trialId": "benchmark_trial_288337771eed6185e6a46fe956bca0f5",
+      "settlementId": "benchmark_settlement_c7aa489a91ce7502c61db48715065993",
+      "retainedDirectory": "trial-GCDwh1",
+      "snapshotManifest": "./artifacts/release_window_regressions/slot_2_company-auto/manifest.json",
+      "recordedExecutionStatus": "failed",
+      "recordedVerification": {
+        "status": "failed",
+        "workspaceIntegrity": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "failed"
+          }
+        ]
+      },
+      "sourceIntegrity": "passed",
+      "contractReview": "failed",
+      "offlineReplay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "failed"
+          }
+        ]
+      },
+      "validity": "valid",
+      "note": "Implementation and one repair completed, but two reviews still requested changes. No candidate was accepted; the retained file is the no-op fixture and fails all three mutant groups. Rejected staged source is unavailable, and the retained diagnostics do not establish a runtime defect."
+    },
+    {
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_2_codex-cli",
+      "armId": "codex-cli",
+      "repetition": 2,
+      "trialId": null,
+      "settlementId": "benchmark_settlement_8fc4ffa6166c7afb3d3236a7c27e7658",
+      "retainedDirectory": null,
+      "snapshotManifest": null,
+      "recordedExecutionStatus": null,
+      "recordedVerification": null,
+      "sourceIntegrity": "not_run",
+      "contractReview": "not_run",
+      "offlineReplay": {
+        "status": "not_run",
+        "checks": []
+      },
+      "validity": "invalid",
+      "note": "Invalid: the final reserved native attempt was interrupted when the campaign controller was stopped. Offline recovery settled the reservation as interrupted with prior_attempt_outcome_unknown. No final trial, candidate, elapsed time or token counters were retained. Recovery budget charges are not measured usage or dollar cost."
+    }
+  ],
+  "reviewFindingSha256": "fb89f1b6bb8ee059bea4e6e95668c574e60ee34c2be6e5eae75ffe1cbe5d651b",
+  "routeAliasAudit": {
+    "declarationMethod": "route- plus the first 24 hex characters of SHA256 of the raw connection ID string",
+    "resultsMethod": "route- plus the first 24 hex characters of SHA256 of JSON.stringify of the same connection ID string",
+    "evidence": "The two redaction algorithms were independently verified locally against the retained configured routes. Public checks validate each file’s internal connection-equality pattern and all non-connection fields. Raw IDs and cross-alias mappings are not published."
+  }
+}

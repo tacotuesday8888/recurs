@@ -1,0 +1,8 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { selectRelease } from '../src/release.js';
+import { checkReleaseWindow } from '../checks/release-contract.js';
+test('checker accepts the working release scheduler on repeated invocations', async () => {
+  await checkReleaseWindow(Object.freeze({selectRelease}));
+  await checkReleaseWindow(Object.freeze({selectRelease}));
+});

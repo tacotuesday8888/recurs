@@ -115,7 +115,8 @@ export interface CompanyBenchmarkCampaignAnalysis {
   readonly campaignId: string;
   readonly comparisonDesign:
     | "shared_parent_v1"
-    | "independent_company_parent_v1";
+    | "independent_company_parent_v1"
+    | "official_codex_control_v1";
   readonly parentComparison: "matched" | "unmatched" | "mixed";
   readonly comparisons: readonly CompanyBenchmarkArmComparison[];
   readonly arms: readonly CompanyBenchmarkArmAnalysis[];
@@ -291,7 +292,12 @@ export function analyzeCompanyBenchmarkCampaign(input: {
     }
     return Object.freeze({
       armId: arm.id,
-      parentComparison: sameRoute(arm.configuredRoutes[0]!, baselineParent)
+      parentComparison: (input.campaign.comparisonDesign === "official_codex_control_v1"
+        ? arm.configuredRoutes[0]!.providerId === baselineParent.providerId &&
+          arm.configuredRoutes[0]!.connectionId === baselineParent.connectionId &&
+          arm.configuredRoutes[0]!.modelId === baselineParent.modelId &&
+          arm.configuredRoutes[0]!.reasoningEffort === baselineParent.reasoningEffort
+        : sameRoute(arm.configuredRoutes[0]!, baselineParent))
         ? "matched" as const
         : "unmatched" as const,
       reliabilityOutcomes: Object.freeze(reliabilityOutcomes),
