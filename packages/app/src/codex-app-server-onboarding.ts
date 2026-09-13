@@ -18,6 +18,7 @@ const FINGERPRINT = /^sha256:[a-f0-9]{64}$/u;
 
 export interface CodexAppServerOnboardingModel {
   readonly id: string;
+  readonly isDefault?: boolean;
   readonly displayName: string;
   readonly defaultReasoningEffort: ModelReasoningEffort;
   readonly supportedReasoningEfforts: readonly ModelReasoningEffort[];
@@ -54,12 +55,12 @@ function desiredModels(
   readonly parent: boolean;
 }[] {
   // Save the live catalog. New model IDs must not require a Recurs release.
-  return Object.freeze(models.map((model, index) => Object.freeze({
+  const defaultModel = models.find((model) => model.isDefault === true) ?? models[0];
+  return Object.freeze(models.map((model) => Object.freeze({
     model,
     effort: model.defaultReasoningEffort,
-    parent: index === 0,
+    parent: model === defaultModel,
   })));
-
 }
 
 function validTimestamp(value: string): boolean {

@@ -75,6 +75,7 @@ describe("Codex app-server subscription catalog", () => {
         },
         {
           id: "gpt-5.6-sol",
+          isDefault: true,
           displayName: "GPT-5.6 Sol",
           defaultReasoningEffort: "low",
           supportedReasoningEfforts: ["low", "ultra"],
