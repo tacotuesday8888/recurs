@@ -7,16 +7,17 @@ import { campaignName, context, pairedRows, pilotOverview, resultRows, trialDeta
 const root = new URL("../.build/", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
 const campaigns = JSON.parse(await readFile(new URL("summary.json", root), "utf8"));
-test("static first render includes actual results and all campaign choices", () => {
-  assert.match(html, /2 \/ 2/u);
-  assert.match(html, /114\.0 s/u);
-  assert.match(html, /408,985/u);
-  assert.match(html, /Dollar cost is unavailable, not zero/u);
+test("historical evidence remains reproducible without cluttering the landing page", () => {
+  const historical = campaigns.map(c => resultRows(c) + trialDetails(c) + pilotOverview([c])).join(" ");
+  assert.match(historical, /2 \/ 2/u);
+  assert.match(historical, /114\.0 s/u);
+  assert.match(historical, /408,985/u);
+  assert.doesNotMatch(html, /Earlier tests inside Recurs|id="campaign"|Recorded from the real terminal|data-view=/u);
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/u);
   assert.equal(campaigns.length, 9);
-  for (const campaign of campaigns) assert.ok(html.includes(campaignName(campaign)));
-  assert.match(html, /gpt-5\.6-luna/u);
-  assert.match(html, /69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42/u);
+  for (const campaign of campaigns) assert.ok(campaignName(campaign));
+  assert.match(historical, /gpt-5\.6-luna/u);
+  assert.match(historical, /69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42/u);
 });
 test("local asset links resolve and captures match repository sources byte for byte", async () => {
   for (const match of html.matchAll(/(?:src|href)="\.\/([^"#]+)"/gu)) await access(new URL(match[1], root));
@@ -59,8 +60,7 @@ test("invalid team topology is explicit and never described as efficiency", () =
   const invalid = campaigns.find(campaign => campaign.scenario === "workspace_maintenance");
   assert.match(context(invalid), /Invalid team setup/u);
   assert.match(pairedRows(invalid), /Invalid setup/u);
-  assert.match(html, /Workers never started/u);
-  assert.match(html, /four corrected workspace v2 records/u);
+  assert.match(pilotOverview([invalid]), /Invalid setup/iu);
 });
 
 

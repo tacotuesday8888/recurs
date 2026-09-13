@@ -71,7 +71,8 @@ export function installPageMotion(onPause: () => void) {
     settle();
     toggle.hidden = false;
     toggle.disabled = preference.matches;
-    toggle.textContent = preference.matches ? "Motion off" : paused ? "Resume motion" : "Pause motion";
+    toggle.textContent = preference.matches ? "Animation off (system)" : paused ? "Animation off" : "Animation on";
+    toggle.setAttribute("aria-label", preference.matches ? "Animation disabled by system preference" : paused ? "Turn animation on" : "Turn animation off");
     toggle.setAttribute("aria-pressed", String(paused || preference.matches));
     if (!enabled()) { renderLetter(); onPause(); }
     syncSpin();

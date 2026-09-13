@@ -69,7 +69,7 @@ const productComparison = await buildProductComparison({
   render: renderProductComparison,
 });
 const replacements = {
-  BENCHMARKS_TARGET: productComparison ? "#product-comparison" : "#evidence",
+  BENCHMARKS_TARGET: productComparison ? "#product-comparison" : "./task-fit-results.md",
   PRODUCT_COMPARISON: productComparison,
   HISTORICAL_EVIDENCE_TITLE: productComparison ? "Earlier tests inside Recurs" : "What happened in our tests?",
   TASK_RESULTS: taskResults(summary),
