@@ -165,7 +165,7 @@ export class TerminalDiffViewer implements Component {
             else if (line.kind === "hunk") {
               const context = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/u.exec(line.text);
               if (context && (context[1] !== "1" || context[2] !== "1")) rows.push(theme.muted(fit(`⋯ ${context[3]?.trim() || `line ${context[2]}`}`)));
-            } else if (/^(?:Binary files|GIT binary patch|old mode|new mode|similarity index|rename from)/u.test(line.text)) rows.push(theme.muted(fit(line.text)));
+            } else if (/^(?:\\ No newline at end of file|Binary files|GIT binary patch|old mode|new mode|similarity index|rename from)/u.test(line.text)) rows.push(theme.muted(fit(line.text)));
             continue;
           }
           if (mode === 1) {

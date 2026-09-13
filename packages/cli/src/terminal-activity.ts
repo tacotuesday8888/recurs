@@ -33,7 +33,7 @@ export class TerminalActivity {
     if (event.type === "tool_started") {
       this.#phase = "Running tools";
       const args = event.call.arguments as Record<string, unknown> | null;
-      const patch = event.call.name === "apply_patch" && args !== null && typeof args === "object" && typeof args.patch === "string" && args.patch.length <= 65536 ? args.patch : null;
+      const patch = event.call.name === "apply_patch" && args !== null && typeof args === "object" && typeof args.patch === "string" && args.patch.length <= 1024 * 1024 ? args.patch : null;
       const target = args?.path ?? args?.command ?? args?.pattern;
       const detail = typeof target === "string" ? sanitizeTerminalText(target, { multiline: false }).slice(0, 160) : "";
       this.#items.push({ id: event.call.id, name: sanitizeTerminalText(event.call.name, { multiline: false }), detail, status: "running", patch, output: "" });
@@ -49,7 +49,7 @@ export class TerminalActivity {
           this.#added += changes.filter((line) => line.kind === "add").length;
           this.#removed += changes.filter((line) => line.kind === "remove").length;
           item.target = { kind: "diff", patch: sanitizeTerminalText(item.patch) };
-          this.#patches = (this.#patches + item.patch).slice(0, 256 * 1024);
+          this.#patches = (this.#patches + item.patch).slice(0, 256 * 1024 + 1);
           this.#patch = changes.slice(0, 8).map((line) => line.text);
           const file = lines.find((line) => line.kind === "header" && line.text.startsWith("+++ "));
           if (file) item.detail = file.text.slice(4).replace(/^b\//u, "");
@@ -61,7 +61,8 @@ export class TerminalActivity {
           const metadata = event.result.metadata;
           if (item.name === "read_file" && typeof event.result.output === "string") {
             const startLine = typeof metadata?.startLine === "number" ? metadata.startLine : 1;
-            const content = sanitizeTerminalText(event.result.output).slice(0, 65536);
+            // Match read_file's 256 KiB output ceiling so links retain the entire observed range.
+            const content = sanitizeTerminalText(event.result.output).slice(0, 256 * 1024);
             item.target = { kind: "source", path: typeof metadata?.path === "string" ? sanitizeTerminalText(metadata.path, { multiline: false }) : item.detail, content, startLine, totalLines: typeof metadata?.totalLines === "number" ? metadata.totalLines : content.split("\n").length };
           }
           item.target ??= { kind: "output", title: activityLabel(item.name, false), content: item.output };
