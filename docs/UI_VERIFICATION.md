@@ -83,7 +83,7 @@ GitHub captures contain the rendered terminal cells without editorial captions.
 
 ## September 13 review and composer pass
 
-The prompt has a complete orange frame and a subtle surface tint. Wrapping,
+The prompt has a complete orange frame and a neutral interior. Wrapping,
 Unicode input, cursor placement, history, and completion stay with the existing
 editor. Setup, chat, and team entry use the same composer. The parent glyph now
 keeps its hierarchy level while activity animates.
@@ -125,3 +125,15 @@ returning with the draft intact. Installed Skills/MCP/company onboarding passed.
 A local 600-file review diagnostic measured 149 ms for construction plus first
 render and 0.090 ms mean cached scrolling across 500 frames; these are local
 rendering diagnostics, not model benchmark results.
+
+The follow-up keeps the animated R visible while drafting and hides it on the
+first submitted message. The chat-history home reserves space for the same R,
+even with many saved chats, and scrolls the list instead. Only the normal editor
+cursor is highlighted; typing does not tint the whole prompt. Regression tests
+cover typing, submission, animation frames and a 30-chat history at 24 rows.
+The updated packed-terminal walkthrough captures an unsent draft and chat
+history, and supplies the 90-frame GIF and video with archive and media hashes
+in `docs/assets/terminal-workflow.json`. The integrated check passed 2,516 tests
+with four platform skips; the clean package-install and terminal walkthroughs
+also passed. These checks do not establish live-model quality or feature parity
+with other coding agents.
