@@ -21,7 +21,7 @@ export const escapeHtml = (value: string | number) => String(value).replace(/[&<
   (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 const number = (value: number | null) => value === null ? "Unknown" : value.toLocaleString("en-US");
 export const armName = (id: string) => ({ "single-strong": "Single agent", "company-auto": "Mixed-model team", "company-strong": "Same-model team" })[id] ?? id;
-export const campaignName = (campaign: Campaign) => `${campaign.date} · ${campaign.scenario} · ${campaign.complete ? "complete" : "interrupted"} · ${campaign.arms.every((arm) => arm.parentMatched) ? "matched parent" : "unmatched parents"}`;
+export const campaignName = (campaign: Campaign) => `${campaign.date} UTC · ${campaign.scenario} · ${campaign.complete ? "complete" : "interrupted"} · ${campaign.arms.every((arm) => arm.parentMatched) ? "matched parent" : "unmatched parents"}`;
 export function context(campaign: Campaign) {
   return `${campaign.evidenceKind === "model_backed" ? "Foreground probe" : "Historical"} · ${campaign.harnessRevision.replace("recurs_0_1_0-", "")} · ${campaign.recordedTrials}/${campaign.plannedSlots} trial records · ${campaign.settledSlots}/${campaign.plannedSlots} slots settled · ${campaign.complete ? `${campaign.repetitions} ${campaign.repetitions === 1 ? "repetition" : "repetitions"} per arm` : "Incomplete campaign; missing trials are not passes"}`;
 }
@@ -67,6 +67,7 @@ export function trialDetails(campaign: Campaign) {
   const provenance = `<p class="fine">Source: ${escapeHtml(campaign.sourceRevision)} · ${escapeHtml(campaign.sourceState)}${campaign.artifactSha256 ? `<br>Executed bundle SHA-256: ${escapeHtml(campaign.artifactSha256)}` : ""}</p>`;
   return provenance + `<p class="fine">Confirmation requests count harness callbacks, including preapproved intents;
     they are not a count of human interventions. User-input requests are recorded separately.
+    Recorded requests count Recurs runtime invocations, not every internal vendor model/tool turn.
     Missing trial slots have no measured time or usage; conservative settlement charges are not measurements.</p>` +
     campaign.arms.map((arm) => renderArm(arm, campaign.trials)).join("");
 }

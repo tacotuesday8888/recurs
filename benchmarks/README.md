@@ -25,6 +25,9 @@ The baseline had one confirmation callback, the company four; both recorded
 zero user-input requests. These callbacks are not a measurement of human effort.
 The campaign remained insufficient evidence (`minimum_comparable_pairs_not_met`
 and `usage_incomplete`; token reporting was complete but dollar cost was absent).
+Requests count Recurs runtime invocations. The Codex adapter can make internal
+model/tool turns inside one invocation; those are not individually counted by
+this harness. Usage is the adapter's reported aggregate for the invocation.
 One pair cannot establish quality, repair reliability, or a general efficiency
 advantage. The baseline ran first; this one-pair probe does not counterbalance
 execution order or cache conditions. No retries, credit purchases, policy changes or outcome exclusions
@@ -110,8 +113,8 @@ recurs benchmark company --configured --allow-network \
 
 The default command freezes the same saved parent for both arms and the saved
 Implement/Review/Repair routes for the company. Verify the route snapshot in
-the returned campaign. This is one pair, at most two trial slots, 192 model
-requests and $6 **reported-cost allowance**, not a promise of known spend or a
+the returned campaign. This is one pair, at most two trial slots, 192 recorded
+runtime requests and $6 **reported-cost allowance**, not a promise of known spend or a
 subscription quota cap. Each runtime is additionally bounded by the saved
 operating-mode policy. Stop with Ctrl-C; retain failed/interrupted settlements
 and never rerun silently. Do not purchase credits or enable fallback billing.
