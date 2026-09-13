@@ -69,6 +69,20 @@ test("token comparison needs complete comparable input/output counters; cached u
   assert.match(html, /equivalent, complete coverage has not been established/u);
 });
 
+test("time bars share one scale across tasks and omit unknown durations", () => {
+  const data = syntheticProductComparison();
+  for (const attempt of data.attempts) attempt.elapsedMs = 0;
+  data.attempts[0].elapsedMs = 50_000;
+  data.attempts[4].elapsedMs = 100_000;
+  data.attempts[8].elapsedMs = null;
+  const html = renderProductComparison(data);
+  assert.match(html, /0–100 second scale/u);
+  assert.match(html, /width:50\.00%/u);
+  assert.match(html, /width:100\.00%/u);
+  assert.equal((html.match(/class="product-time-bar"/gu) ?? []).length, 11);
+  assert.match(html, /Not recorded/u);
+});
+
 test("strict export validation rejects missing/duplicate slots, invented metrics and unaudited kinds", () => {
   for (const alter of [
     data => { data.kind = "synthetic"; },

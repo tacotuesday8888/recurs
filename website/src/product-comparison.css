@@ -27,3 +27,12 @@
 .product-review-story p { margin-top: 12px; color: var(--muted); line-height: 1.6; }
 .product-review-story details { margin-top: 14px; }
 .product-review-story summary { cursor: pointer; width: fit-content; }
+
+.product-time-bar { display: block; height: 4px; margin-block: 9px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.product-time-bar > span { display: block; height: 100%; background: var(--muted); }
+.product-measures td:last-child .product-time-bar > span { background: var(--accent); }
+.product-method { margin-top: 18px; max-width: 85ch; }
+.product-method > p { padding-inline: 24px; }
+.product-method > p:last-child { padding-bottom: 22px; }
+
+.product-comparison .task-comparison tbody td { padding-left: 14px; }
