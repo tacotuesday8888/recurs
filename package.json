@@ -72,7 +72,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@earendil-works/pi-tui": "0.83.0",
+    "@earendil-works/pi-tui": "0.85.1",
     "@modelcontextprotocol/client": "2.0.0",
     "typescript": "6.0.3",
     "ws": "8.21.3",
