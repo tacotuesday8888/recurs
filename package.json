@@ -80,7 +80,7 @@
     "zod": "4.6.2"
   },
   "devDependencies": {
-    "@agentclientprotocol/codex-acp": "1.1.7",
+    "@agentclientprotocol/codex-acp": "1.11.0",
     "@eslint/js": "10.0.1",
     "@openai/codex": "0.145.0",
     "@types/node": "22.20.2",
@@ -95,7 +95,7 @@
     "@lydell/node-pty": "1.1.0"
   },
   "peerDependencies": {
-    "@agentclientprotocol/codex-acp": "1.1.7",
+    "@agentclientprotocol/codex-acp": "1.11.0",
     "@github/copilot-sdk": "1.0.8",
     "@openai/codex": "0.145.0"
   },
