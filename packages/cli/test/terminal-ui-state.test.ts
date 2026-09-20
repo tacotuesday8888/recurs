@@ -83,6 +83,23 @@ function fourLayerBlueprint(): CompanyBlueprintV2 {
 }
 
 describe("TerminalUiState", () => {
+  it("reuses an unchanged projection and invalidates it when parent state changes", () => {
+    const state = new TerminalUiState({ model: "fixture", mode: "balanced", permission: "ask" });
+    const before = state.snapshot();
+    expect(state.snapshot()).toBe(before);
+    let observed: ReturnType<TerminalUiState["snapshot"]> | undefined;
+    state.onChange(() => { observed = state.snapshot(); });
+    state.updateParentSession({ model: "updated", mode: "balanced", permission: "ask" });
+    expect(observed).not.toBe(before);
+    expect(observed?.session.model).toBe("updated");
+    expect(before.session.model).toBe("fixture");
+    expect(state.snapshot()).toBe(observed);
+    const beforeRestore = state.snapshot();
+    state.restoreExecutions([]);
+    expect(state.snapshot()).not.toBe(beforeRestore);
+    expect(state.snapshot()).toBe(observed);
+  });
+
   it("renders the onboarding-defined company as a compact reporting tree", () => {
     const state = new TerminalUiState({
       model: "gpt-5.6-sol",
@@ -569,6 +586,8 @@ describe("TerminalUiState", () => {
       maxRequests: 30,
       maxReportedCostUsd: 3,
     });
+    const beforeHandoff = state.snapshot();
+    expect(state.snapshot()).toBe(beforeHandoff);
     await state.emit({
       type: "company_handoff_completed",
       sessionId: "parent-session",
@@ -585,6 +604,11 @@ describe("TerminalUiState", () => {
       evidence: ["tests passed", "diff reviewed"],
       workflow: { modelRequests: 1, toolCalls: 3 },
     });
+    expect(state.snapshot()).not.toBe(beforeHandoff);
+    expect(beforeHandoff.goal?.handoffs.completed).toBe(0);
+    expect(beforeHandoff.goal?.handoffUsage.inputTokens).toBe(0);
+    expect(Object.isFrozen(beforeHandoff.goal?.handoffs)).toBe(true);
+    expect(Object.isFrozen(beforeHandoff.goal?.handoffUsage)).toBe(true);
     await state.emit({
       type: "company_handoff_completed",
       sessionId: "parent-session",

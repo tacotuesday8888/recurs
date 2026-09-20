@@ -5,6 +5,10 @@ exported package surfaces, CLI assembly, durable contracts/stores, provider
 manifests, automated tests and the public installed artifact. Exact evidence is
 recorded in [Product polish](PRODUCT_POLISH.md).
 
+The [September 20 quality audit](PRODUCT_QUALITY_AUDIT.md) records current
+benchmark limitations, measured startup memory improvements, terminal/UI fixes,
+and remaining profiling work. It is not a new release record.
+
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
 checkboxes are not a live backlog. Research under `docs/research/` is preserved

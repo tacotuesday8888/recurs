@@ -59,7 +59,9 @@ document.querySelectorAll<HTMLButtonElement>("[data-inspect-task]").forEach(butt
     if (!evidence || !task || !attempts) return;
     evidence.open = true;
     attempts.open = true;
-    attempts.querySelector("summary")?.focus({ preventScroll: true });
-    task.scrollIntoView({ block: "start", behavior: "instant" });
+    const result = document.getElementById(button.getAttribute("aria-controls") ?? "");
+    const target = result ?? attempts.querySelector("summary");
+    target?.focus({ preventScroll: true });
+    (result ?? task).scrollIntoView({ block: "start", behavior: "instant" });
   });
 });

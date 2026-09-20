@@ -1,6 +1,13 @@
+import { createRequire } from "node:module";
 import path from "node:path";
+import type ts from "typescript";
 
-import ts from "typescript";
+const require = createRequire(import.meta.url);
+let compiler: typeof ts | undefined;
+// Load the compiler only when an outline or reference index is requested.
+function typeScript(): typeof ts {
+  return compiler ??= require("typescript") as typeof ts;
+}
 
 export interface TypeScriptOutlineDeclaration {
   readonly line: number;
@@ -27,6 +34,7 @@ export interface TypeScriptOutlineReferenceIndex {
 }
 
 function scriptKindFor(file: string): ts.ScriptKind {
+  const ts = typeScript();
   switch (path.extname(file).toLowerCase()) {
     case ".ts":
     case ".mts":
@@ -42,6 +50,7 @@ function scriptKindFor(file: string): ts.ScriptKind {
 }
 
 function declarationName(node: ts.DeclarationName | ts.ModuleName): string | undefined {
+  const ts = typeScript();
   if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
     return node.text;
   }
@@ -51,6 +60,7 @@ function declarationName(node: ts.DeclarationName | ts.ModuleName): string | und
 function callableInitializer(
   expression: ts.Expression | undefined,
 ): "function" | "class" | undefined {
+  const ts = typeScript();
   let current = expression;
   while (
     current !== undefined &&
@@ -69,6 +79,7 @@ export function parseTypeScriptOutline(
   file: string,
   content: string,
 ): readonly TypeScriptOutlineDeclaration[] {
+  const ts = typeScript();
   const source = ts.createSourceFile(
     file,
     content,
@@ -161,6 +172,7 @@ function virtualPath(file: string): string {
 }
 
 function declarationIdentifier(node: ts.Declaration): ts.Identifier | undefined {
+  const ts = typeScript();
   if (ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node) ||
     ts.isFunctionDeclaration(node) || ts.isTypeAliasDeclaration(node) ||
     ts.isEnumDeclaration(node) || ts.isVariableDeclaration(node) ||
@@ -177,11 +189,13 @@ function declarationIdentifier(node: ts.Declaration): ts.Identifier | undefined 
 }
 
 function isDeclarationIdentifier(node: ts.Identifier): boolean {
+  const ts = typeScript();
   return declarationIdentifier(node.parent as ts.Declaration) === node ||
     ts.isParameter(node.parent) && node.parent.name === node;
 }
 
 function isImportOrExportIdentifier(node: ts.Identifier): boolean {
+  const ts = typeScript();
   let current: ts.Node | undefined = node.parent;
   while (current !== undefined && !ts.isSourceFile(current)) {
     if (ts.isImportDeclaration(current) || ts.isImportEqualsDeclaration(current) ||
@@ -197,6 +211,7 @@ function isImportOrExportIdentifier(node: ts.Identifier): boolean {
 export function indexTypeScriptOutlineReferences(
   files: readonly TypeScriptOutlineSource[],
 ): TypeScriptOutlineReferenceIndex {
+  const ts = typeScript();
   const sourceByVirtualPath = new Map<string, TypeScriptOutlineSource>();
   for (const file of files) {
     const virtual = virtualPath(file.path);

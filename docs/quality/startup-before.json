@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "executableSha256": "b09aa8d1770dc006cbff3b94567011eaa0dd746cdd40e430a2403ac06a024791",
+  "method": "Five fresh processes per command after one discarded warmup; isolated homes; peak RSS from Node resourceUsage in bytes; no model calls; not process-tree or active-turn memory.",
+  "samples": [
+    {
+      "repetition": 1,
+      "command": "--version",
+      "wallMs": 330.9,
+      "peakRssBytes": 183205888,
+      "exitRssBytes": 183238656,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 2,
+      "command": "--version",
+      "wallMs": 329.2,
+      "peakRssBytes": 184074240,
+      "exitRssBytes": 184090624,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 3,
+      "command": "--version",
+      "wallMs": 336.4,
+      "peakRssBytes": 183779328,
+      "exitRssBytes": 183795712,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 4,
+      "command": "--version",
+      "wallMs": 339.6,
+      "peakRssBytes": 189317120,
+      "exitRssBytes": 189333504,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 5,
+      "command": "--version",
+      "wallMs": 325.6,
+      "peakRssBytes": 188039168,
+      "exitRssBytes": 188055552,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 1,
+      "command": "--help",
+      "wallMs": 368.8,
+      "peakRssBytes": 188481536,
+      "exitRssBytes": 188481536,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 2,
+      "command": "--help",
+      "wallMs": 336.2,
+      "peakRssBytes": 183975936,
+      "exitRssBytes": 183943168,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 3,
+      "command": "--help",
+      "wallMs": 327.8,
+      "peakRssBytes": 191774720,
+      "exitRssBytes": 191807488,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 4,
+      "command": "--help",
+      "wallMs": 338.4,
+      "peakRssBytes": 189136896,
+      "exitRssBytes": 189136896,
+      "compilerLoaded": true
+    },
+    {
+      "repetition": 5,
+      "command": "--help",
+      "wallMs": 332.4,
+      "peakRssBytes": 181321728,
+      "exitRssBytes": 181338112,
+      "compilerLoaded": true
+    }
+  ]
+}

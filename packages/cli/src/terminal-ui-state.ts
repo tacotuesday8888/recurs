@@ -148,6 +148,7 @@ export class TerminalUiState implements EventSink {
   readonly #activatedAssignments = new Set<string>();
   #goal: MutableGoal | null = null;
   #onChange: (() => void) | null = null;
+  #snapshot: TerminalUiSnapshot | null = null;
 
   constructor(
     session: TerminalUiSnapshot["session"],
@@ -182,12 +183,12 @@ export class TerminalUiState implements EventSink {
       });
       this.#activatedAssignments.add(execution.executionId);
     }
-    this.#onChange?.();
+    this.#changed();
   }
 
   updateParentSession(session: TerminalUiSnapshot["session"]): void {
     this.#session = Object.freeze({ ...this.#session, ...session });
-    this.#onChange?.();
+    this.#changed();
   }
 
   onChange(listener: (() => void) | null): void {
@@ -364,7 +365,7 @@ export class TerminalUiState implements EventSink {
       default:
         break;
     }
-    this.#onChange?.();
+    this.#changed();
   };
 
   #finishAgent(
@@ -380,7 +381,13 @@ export class TerminalUiState implements EventSink {
     if (detail !== null) agent.detail = detail;
   }
 
+  #changed(): void {
+    this.#snapshot = null;
+    this.#onChange?.();
+  }
+
   snapshot(): TerminalUiSnapshot {
+    if (this.#snapshot !== null) return this.#snapshot;
     const depth = (agent: MutableAgent): number => {
       let current = agent;
       let value = 1;
@@ -412,6 +419,8 @@ export class TerminalUiState implements EventSink {
           const { evidence, ...view } = this.#goal;
           return Object.freeze({
             ...view,
+            handoffs: Object.freeze({ ...view.handoffs }),
+            handoffUsage: Object.freeze({ ...view.handoffUsage }),
             evidenceCount: evidence.size,
             activeAgents,
           });
@@ -419,16 +428,23 @@ export class TerminalUiState implements EventSink {
     // Keyboard selection and rendering share one depth-first order.
     const companyNodes = this.#companyView(agents, goal);
     const company: TerminalCompanyNodeView[] = [];
+    const children = new Map<string, TerminalCompanyNodeView[]>();
+    for (const node of companyNodes) {
+      if (node.reportsToRoleId === null) continue;
+      const siblings = children.get(node.reportsToRoleId) ?? [];
+      siblings.push(node);
+      children.set(node.reportsToRoleId, siblings);
+    }
     const visited = new Set<string>();
     const visit = (node: TerminalCompanyNodeView): void => {
       if (visited.has(node.roleId)) return;
       visited.add(node.roleId);
       company.push(node);
-      companyNodes.filter((child) => child.reportsToRoleId === node.roleId).forEach(visit);
+      children.get(node.roleId)?.forEach(visit);
     };
     companyNodes.filter((node) => node.reportsToRoleId === null).forEach(visit);
     companyNodes.forEach(visit);
-    return Object.freeze({
+    return this.#snapshot = Object.freeze({
       session: this.#session,
       goal,
       agents: Object.freeze(agents),
@@ -442,6 +458,7 @@ export class TerminalUiState implements EventSink {
     goal: TerminalGoalView | null,
   ): readonly TerminalCompanyNodeView[] {
     if (this.#blueprint === null) {
+      const executionIds = new Set(agents.map((agent) => agent.executionId));
       const parentStatus: TerminalCompanyNodeStatus = goal?.status === "running"
         ? "running"
         : goal?.status === "completed" || goal?.status === "failed" ||
@@ -463,7 +480,7 @@ export class TerminalUiState implements EventSink {
       } satisfies TerminalCompanyNodeView), ...agents.map((agent) =>
         Object.freeze({
           roleId: agent.executionId,
-          reportsToRoleId: agents.some((candidate) => candidate.executionId === agent.parentExecutionId)
+          reportsToRoleId: agent.parentExecutionId !== null && executionIds.has(agent.parentExecutionId)
             ? agent.parentExecutionId : "parent",
           representativeExecutionId: agent.executionId,
           assignmentIds: Object.freeze([agent.assignmentId]),
