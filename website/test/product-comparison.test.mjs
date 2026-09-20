@@ -12,7 +12,7 @@ test("fresh comparison renders explicit products, three tasks and every declared
   const data = syntheticProductComparison();
   const html = renderProductComparison(data);
   assert.equal((html.match(/data-product-task=/gu) ?? []).length, 3);
-  assert.equal((html.match(/<li><p><strong>/gu) ?? []).length, 12);
+  assert.equal((html.match(/<li\b[^>]*><p><strong>/gu) ?? []).length, 12);
   assert.equal((html.match(/data-count-to="2"/gu) ?? []).length, 6);
   assert.match(html, /Luna \(medium\) for lead/u);
   assert.match(html, /Terra \(medium\) for implementation/u);
@@ -177,7 +177,7 @@ test("real audited page preserves every outcome and separates reviewer observati
   assert.match(html, /Codex CLI finished <strong>3 of 6<\/strong>; Recurs finished <strong>2 of 6<\/strong>/u);
   assert.match(html, /<details class="product-evidence-details"><summary>Explore the 12 attempts<\/summary>/u);
   assert.equal((html.match(/data-product-task=/gu) ?? []).length, 3);
-  assert.equal((html.match(/<li><p><strong>/gu) ?? []).length, 12);
+  assert.equal((html.match(/<li\b[^>]*><p><strong>/gu) ?? []).length, 12);
   assert.match(html, /464\.9 seconds/u);
   assert.match(html, /no final trial, candidate, elapsed time or token counters were retained/iu);
   assert.doesNotMatch(html, /SYNTHETIC-TEST-ONLY/u);
@@ -200,4 +200,13 @@ test("benchmark overview preserves all outcomes with twelve inspectable slots", 
   assert.equal((html.match(/class="benchmark-slot unfinished"/gu) ?? []).length, 5);
   assert.equal((html.match(/class="benchmark-slot invalid"/gu) ?? []).length, 2);
   assert.match(html, /Select it to inspect the result/u);
+  const controls = [...html.matchAll(/data-inspect-task="([^"]+)" aria-controls="([^"]+)" aria-label="([^"]+)"/gu)];
+  assert.equal(controls.length, 12);
+  assert.equal(new Set(controls.map(match => match[2])).size, 12);
+  for (const [, task, target, label] of controls) {
+    const attempt = /attempt (\d): (.+)$/u.exec(label);
+    const arm = label.startsWith("Codex CLI,") ? "codex-cli" : "company-auto";
+    assert.equal(target, `attempt-${task}-${arm}-${attempt[1]}`);
+    assert.ok(html.includes(`<li id="${target}" tabindex="-1"><p><strong>${label.split(",")[0]}, attempt ${attempt[1]}: ${attempt[2]}</strong>`));
+  }
 });
