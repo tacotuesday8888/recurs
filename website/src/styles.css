@@ -271,3 +271,6 @@ header { background: var(--canvas); }
 .hero-copy > p { font-size: 16px; }
 .install-command { border-color: var(--line); background: transparent; border-radius: 4px; box-shadow: none; }
 .install-command button { background: transparent; border-color: var(--line); border-radius: 3px; color: var(--muted); }
+
+.install-action > .install-methods { gap: 20px; margin-bottom: 10px; }
+.install-action > .install-methods button { padding: 8px 0; font-size: 14px; }

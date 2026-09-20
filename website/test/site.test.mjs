@@ -74,3 +74,10 @@ test("workspace scenario versions remain distinct in the overview and campaign n
   assert.match(overview, /v1 · invalid team setup/u);
   assert.match(overview, /v2<\/th>/u);
 });
+
+test("all install methods are visible above the command", () => {
+  const methods = html.indexOf('class="install-methods"');
+  assert.ok(methods > 0 && methods < html.indexOf('class="install-command"'));
+  assert.doesNotMatch(html, /Installation options|class="install-options"/u);
+  for (const name of ["npm", "bun", "brew"]) assert.ok(html.includes(`data-install="${name}"`));
+});
