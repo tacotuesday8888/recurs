@@ -510,7 +510,7 @@ function parseScenario(value: unknown): CompanyBenchmarkScenarioRefV1 {
   ]);
   const id = idField(item, "id", "Company benchmark scenario id");
   if (item.version !== 1 && !(item.version === 2 &&
-    (id === "queue_cancellation" || id === "workspace_maintenance"))) {
+    (id === "queue_cancellation" || id === "workspace_maintenance" || id === "incremental_build_repair"))) {
     throw new TypeError("Company benchmark scenario version is unsupported");
   }
   return {

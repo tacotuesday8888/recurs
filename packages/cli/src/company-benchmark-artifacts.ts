@@ -4,7 +4,15 @@ import { lstat, mkdir, mkdtemp, open, realpath, writeFile } from "node:fs/promis
 import path from "node:path";
 
 import type { CompanyBenchmarkTrialV1 } from "@recurs/contracts";
-import type { CompanyBenchmarkScenario, TeamRunState } from "@recurs/core";
+import type { CompanyBenchmarkScenario, TeamCandidateObservation, TeamRunState } from "@recurs/core";
+
+export interface RetainedBenchmarkCandidate {
+  readonly runId: string;
+  readonly round: number;
+  readonly phase: "implementation" | "repair";
+  readonly artifactSha256: string;
+  readonly directory: string;
+}
 
 /** Retain only declared fixture files, never the private runtime home or transcripts. */
 export async function retainCompanyBenchmarkArtifacts(input: {
@@ -14,6 +22,8 @@ export async function retainCompanyBenchmarkArtifacts(input: {
   readonly trial: CompanyBenchmarkTrialV1 | null;
   readonly campaignId: string;
   readonly slotId: string;
+  readonly candidate?: Pick<TeamCandidateObservation, "runId" | "round" | "phase"> & { readonly artifactSha256: string };
+  readonly stagedCandidates?: readonly RetainedBenchmarkCandidate[];
   readonly teamRuns?: readonly (Pick<TeamRunState, "status" | "reviews" | "artifacts"> & {
     readonly descriptor: Pick<TeamRunState["descriptor"], "id">;
   })[];
@@ -65,11 +75,19 @@ export async function retainCompanyBenchmarkArtifacts(input: {
     campaignId: input.campaignId,
     slotId: input.slotId,
     scenarioId: input.scenario.id,
+    scenarioVersion: input.scenario.version,
+    verifierId: input.scenario.verifierId,
     fixtureSha256: input.scenario.fixtureSha256,
     trial: input.trial,
+    ...(input.candidate === undefined ? {} : { candidate: input.candidate }),
+    // Keep slot-level links even if an interrupted run has no final team state.
+    ...(input.stagedCandidates === undefined ? {} : {
+      stagedCandidates: input.stagedCandidates.slice(0, 32),
+      stagedCandidatesTruncated: input.stagedCandidates.length > 32,
+    }),
     files,
     // Structured review evidence only; never prompts, session records or raw transcripts.
-    // Staging is cleaned by the supervisor before this point. Do not imply it survived.
+    // Link only completed captures taken before staging cleanup.
     teamDiagnostics: (input.teamRuns ?? []).slice(0, 8).map((run) => ({
       runId: run.descriptor.id,
       status: run.status,
@@ -84,7 +102,8 @@ export async function retainCompanyBenchmarkArtifacts(input: {
         })),
         evidence: review.evidence.slice(0, 4).map((item) => item.slice(0, 1024)),
       })),
-      stagedCandidate: "not_retained",
+      stagedCandidate: (input.stagedCandidates ?? []).some((candidate) => candidate.runId === run.descriptor.id) ? "retained" : "not_retained",
+      ...(input.stagedCandidates === undefined ? {} : { stagedCandidates: input.stagedCandidates.filter((candidate) => candidate.runId === run.descriptor.id).slice(0, 32) }),
       artifactHashes: run.artifacts.slice(0, 32).map((artifact) => ({
         kind: artifact.kind, round: artifact.round, sha256: artifact.handle.sha256,
       })),

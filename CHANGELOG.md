@@ -4,6 +4,13 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Stream and validate session-history listings to reduce memory use while
+  preserving corruption detection and interrupted-write recovery.
+- Strengthen the incremental-build benchmark with a versioned ownership check;
+  optionally retain completed implementation and repair candidates before cleanup.
+- Exercise 120 streamed terminal turns and draft-preserving resize/navigation
+  cycles in the installed-package macOS CI gate.
+
 - Add `recurs completion bash|zsh|fish`, a static completion script for the
   reviewed command surface.
 - Add `recurs run --continue` to resume the newest durable parent session of

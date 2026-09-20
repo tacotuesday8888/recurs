@@ -59,3 +59,48 @@ it("retains bounded structured findings while identifying unavailable staged cod
   expect(manifest.teamDiagnostics[0].reviews[0].findings[0].problem).toHaveLength(2048);
   expect(manifest.teamDiagnostics[0].reviews[0].findings[0].acceptance).toBe("Release the slot before resolving.");
 });
+
+it("binds staged snapshots to their round and patch hash before the workspace is deleted", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "recurs-staged-candidate-"));
+  roots.push(root);
+  const workspace = path.join(root, "workspace");
+  await mkdir(workspace);
+  const scenario = getCompanyBenchmarkScenario("incremental_build_repair", 2);
+  await materializeCompanyBenchmarkScenario(scenario, workspace);
+  const metadata = { runId: "team-1", round: 1, phase: "repair" as const, artifactSha256: "a".repeat(64) };
+  const source = "export const rejectedCandidate = true;\n";
+  await writeFile(path.join(workspace, "src/plan.js"), source);
+  await writeFile(path.join(workspace, "private-unlisted.txt"), "never retained");
+  const capture = await retainCompanyBenchmarkArtifacts({
+    directory: path.join(root, "artifacts"), workspace, scenario,
+    trial: null, campaignId: "test-campaign", slotId: "slot_1_company-auto", candidate: metadata,
+  });
+  const manifest = JSON.parse(await readFile(path.join(capture, "manifest.json"), "utf8"));
+  expect(manifest.candidate).toEqual(metadata);
+  expect(manifest).toMatchObject({ scenarioVersion: 2, verifierId: "incremental_build_repair_hidden_v2" });
+  expect(manifest.files.find((file: { path: string }) => file.path === "src/plan.js")).toMatchObject({ status: "retained", sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
+  expect(manifest.files.some((file: { path: string }) => file.path.includes("private"))).toBe(false);
+  const final = await retainCompanyBenchmarkArtifacts({
+    directory: path.join(root, "artifacts"), workspace, scenario,
+    trial: null, campaignId: "test-campaign", slotId: "slot_1_company-auto",
+    stagedCandidates: [{ ...metadata, directory: path.basename(capture) }],
+    teamRuns: [{ descriptor: { id: "team-1" }, status: "changes_requested", artifacts: [], reviews: [] }],
+  });
+  await rm(workspace, { recursive: true });
+  expect(await readFile(path.join(capture, "candidate/src/plan.js"), "utf8")).toBe(source);
+  const finalManifest = JSON.parse(await readFile(path.join(final, "manifest.json"), "utf8"));
+  expect(finalManifest.stagedCandidates).toEqual([{ ...metadata, directory: path.basename(capture) }]);
+  expect(finalManifest.teamDiagnostics[0]).toMatchObject({ stagedCandidate: "retained", stagedCandidates: [{ ...metadata, directory: path.basename(capture) }] });
+});
+
+it("retains bounded slot links when final team diagnostics are unavailable", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "recurs-interrupted-candidate-"));
+  roots.push(root);
+  const scenario = getCompanyBenchmarkScenario("incremental_build_repair", 2);
+  const stagedCandidates = Array.from({ length: 33 }, (_, round) => ({ runId: "team-1", round, phase: "repair" as const, artifactSha256: "a".repeat(64), directory: `trial-${round}` }));
+  const final = await retainCompanyBenchmarkArtifacts({ directory: path.join(root, "artifacts"), workspace: root, scenario, trial: null, campaignId: "test-campaign", slotId: "slot_1_company-auto", stagedCandidates });
+  const manifest = JSON.parse(await readFile(path.join(final, "manifest.json"), "utf8"));
+  expect(manifest.teamDiagnostics).toEqual([]);
+  expect(manifest.stagedCandidates).toEqual(stagedCandidates.slice(0, 32));
+  expect(manifest.stagedCandidatesTruncated).toBe(true);
+});

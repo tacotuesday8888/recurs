@@ -73,6 +73,7 @@ import {
   TeamRunOwnerLeaseManager,
   TeamRunRecoveryCoordinator,
   TeamRunSupervisor,
+  type TeamCandidateObservation,
   bindRunAuthorization,
   activeGoal,
   companyContextInstructions,
@@ -207,6 +208,7 @@ export interface StandaloneRuntimeOptions {
   approvalHandler?: ApprovalHandler;
   permissionRules?: readonly PermissionRule[];
   lifecycleHookClose?: () => Promise<void>;
+  observeTeamCandidate?: (candidate: TeamCandidateObservation) => Promise<void>;
   runContext?: TrustedRunContext;
 }
 
@@ -1567,6 +1569,7 @@ export async function createStandaloneRuntime(
   if (options.delegationEnabled !== false) tools.register(childBatches.createTool());
   const reviews = new AgentReviewPanel({ sessions, children: childAgents });
   const teamSupervisor = new TeamRunSupervisor({
+    ...(options.observeTeamCandidate === undefined ? {} : { observeCandidate: options.observeTeamCandidate }),
     sessions,
     runs: teamRuns,
     owners: teamOwners,

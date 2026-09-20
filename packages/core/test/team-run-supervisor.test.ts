@@ -50,6 +50,7 @@ import { TeamRunOwnerLeaseManager } from "../src/team-run-owner-lease.js";
 import {
   TEAM_APPLY_PERMISSION,
   TeamRunSupervisor,
+  type TeamCandidateObservation,
 } from "../src/team-run-supervisor.js";
 import type {
   TeamRunRecordInput,
@@ -161,6 +162,7 @@ class RecordingCheckpoints extends CheckpointStore {
 }
 
 interface HarnessOptions {
+  readonly observeCandidate?: (candidate: TeamCandidateObservation) => Promise<void>;
   readonly reviewByRound?: (
     round: number,
   ) => "approved" | "changes_requested" | "invalid";
@@ -593,6 +595,12 @@ async function harness(options: HarnessOptions = {}) {
   let supervisorId = 0;
   const owners = new TeamRunOwnerLeaseManager({ rootDirectory: root });
   const createSupervisor = () => new TeamRunSupervisor({
+    ...(options.observeCandidate === undefined ? {} : {
+      observeCandidate: async (candidate: TeamCandidateObservation) => {
+        log.push(`candidate:${candidate.phase}:${candidate.round}`);
+        await options.observeCandidate!(candidate);
+      },
+    }),
     sessions,
     runs,
     owners,
@@ -2041,6 +2049,30 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       });
     }
     expect(test.parentMutationCount()).toBe(1);
+  });
+
+  it("captures rejected and repaired candidates before cleanup without changing a stalled outcome", async () => {
+    const observations: TeamCandidateObservation[] = [];
+    const test = await harness({
+      reviewByRound: () => "changes_requested", repairNoop: true,
+      async observeCandidate(candidate) { observations.push(candidate); },
+    });
+    const result = await test.supervisor.startForeground(test.input, test.context);
+    expect(result.metadata.status).toBe("changes_requested");
+    expect(observations.map(({ phase, round }) => [phase, round])).toEqual([["implementation", 0], ["repair", 1]]);
+    expect(observations.every((candidate) => candidate.runId === result.metadata.teamId)).toBe(true);
+    expect(observations[0]!.artifact.sha256).toBe(observations[1]!.artifact.sha256);
+    expect(test.log.indexOf("candidate:implementation:0")).toBeLessThan(test.log.indexOf("candidate:repair:1"));
+    expect(test.log.indexOf("candidate:repair:1")).toBeLessThan(test.log.findIndex((entry) => entry.startsWith("patch:discard:")));
+    expect(test.parentMutationCount()).toBe(0);
+  });
+
+  it("keeps successful review and cleanup intact when optional candidate capture fails", async () => {
+    const test = await harness({ async observeCandidate() { throw new Error("Capture disk unavailable"); } });
+    const result = await test.supervisor.startForeground(test.input, test.context);
+    expect(result.metadata.status).toBe("approved");
+    expect(test.parentMutationCount()).toBe(1);
+    expect(test.log.some((entry) => entry.startsWith("patch:discard:"))).toBe(true);
   });
 
   it("does not spend another review request after a no-op repair", async () => {

@@ -629,8 +629,9 @@ baseline and the currently configured saved role-route snapshot:
 recurs benchmark company --list [--json]
 recurs benchmark company --configured --allow-network \
   [--scenario <id>] [--connection <id>] \
-  [--repetitions 1|2|3] [--compare-all-strong] [--json]
-recurs benchmark company --resume <campaign-id> --allow-network [--json]
+  [--repetitions 1|2|3] [--compare-all-strong] [--artifacts <directory>] [--json]
+recurs benchmark company --resume <campaign-id> --allow-network \
+  [--artifacts <directory>] [--json]
 ```
 
 Campaigns are resumable and alternate arm order. The default compares the
@@ -646,6 +647,28 @@ arm recorded the same parent-boundary failure code on the same parent route
 before any worker activated and no usage report was available. Review
 activation, final verdicts, Repair attempts, completed Repair attempts, and
 recovered trials are reported separately.
+
+New `incremental_build_repair` campaigns use verifier version 2, which also
+checks own-enumerable-key behavior for snapshot differences, graph membership,
+and build selection. Version 1 campaigns retain their original verifier and
+grades; a resume never silently upgrades the scenario.
+
+Use `--artifacts <directory>` to retain declared fixture files and candidate
+source before the temporary workspace is cleaned up. For team runs, this also
+captures completed implementation and repair snapshots before review and
+cleanup, including rejected and unchanged repairs. Each manifest records the
+scenario and verifier versions, per-file hashes, and the team run, round,
+phase, and patch hash. Final diagnostics link to those snapshot directories.
+This cannot recover source from old runs or a worker interrupted before its
+snapshot was captured.
+
+Capture is optional: errors produce a progress warning without replacing a
+measured trial. Each slot permits at most 32 staged snapshots, each limited to
+the declared fixture files and 64 KiB per candidate file. Missing, oversized,
+or unsafe files are marked in the manifest. Private runtime homes and raw
+transcripts are excluded. Staged capture time is part of elapsed execution;
+declare the same capture policy before comparing runs. Review artifacts before
+publishing them; local capture does not itself publish anything.
 
 ## ACP
 

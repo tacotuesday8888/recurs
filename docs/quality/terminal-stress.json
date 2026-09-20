@@ -1,0 +1,907 @@
+{
+  "sourceBaseline": "4a1d537f329a0c2af70fe439cf5845c4676a547a",
+  "sourceState": "Local benchmark-stress-hardening working tree; exact tested npm archive identified by SHA-256, not a published release.",
+  "status": "passed",
+  "artifact": "recurs-0.1.0-alpha.11.tgz",
+  "measurements": {
+    "archiveSha256": "d2a9412b9322d698ffbebbc2b2f82ae7fcc10f249513b293a81fa003b6404e2f",
+    "compressedBytes": 609230,
+    "unpackedBytes": 1977154,
+    "installedFileBytes": 49797154,
+    "startupVersionMs": [
+      533,
+      208,
+      209,
+      205,
+      205
+    ],
+    "node": "v24.19.0",
+    "platform": "darwin-arm64"
+  },
+  "requests": 131,
+  "stress": {
+    "method": "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof",
+    "samples": [
+      {
+        "turn": 1,
+        "wallMs": 691,
+        "rssBytes": 179191808,
+        "processTreeRssBytes": 187006976,
+        "processes": 3
+      },
+      {
+        "turn": 2,
+        "wallMs": 691,
+        "rssBytes": 182878208,
+        "processTreeRssBytes": 189775872,
+        "processes": 3
+      },
+      {
+        "turn": 3,
+        "wallMs": 660,
+        "rssBytes": 185155584,
+        "processTreeRssBytes": 191660032,
+        "processes": 2
+      },
+      {
+        "turn": 4,
+        "wallMs": 693,
+        "rssBytes": 202358784,
+        "processTreeRssBytes": 227196928,
+        "processes": 3
+      },
+      {
+        "turn": 5,
+        "wallMs": 687,
+        "rssBytes": 222773248,
+        "processTreeRssBytes": 230227968,
+        "processes": 3
+      },
+      {
+        "turn": 6,
+        "wallMs": 687,
+        "rssBytes": 231948288,
+        "processTreeRssBytes": 239419392,
+        "processes": 3
+      },
+      {
+        "turn": 7,
+        "wallMs": 691,
+        "rssBytes": 240517120,
+        "processTreeRssBytes": 266928128,
+        "processes": 3
+      },
+      {
+        "turn": 8,
+        "wallMs": 688,
+        "rssBytes": 244285440,
+        "processTreeRssBytes": 251854848,
+        "processes": 3
+      },
+      {
+        "turn": 9,
+        "wallMs": 690,
+        "rssBytes": 248889344,
+        "processTreeRssBytes": 256622592,
+        "processes": 3
+      },
+      {
+        "turn": 10,
+        "wallMs": 655,
+        "rssBytes": 277315584,
+        "processTreeRssBytes": 283574272,
+        "processes": 3
+      },
+      {
+        "turn": 11,
+        "wallMs": 686,
+        "rssBytes": 313966592,
+        "processTreeRssBytes": 321421312,
+        "processes": 3
+      },
+      {
+        "turn": 12,
+        "wallMs": 686,
+        "rssBytes": 309641216,
+        "processTreeRssBytes": 316604416,
+        "processes": 3
+      },
+      {
+        "turn": 13,
+        "wallMs": 691,
+        "rssBytes": 310394880,
+        "processTreeRssBytes": 318013440,
+        "processes": 3
+      },
+      {
+        "turn": 14,
+        "wallMs": 692,
+        "rssBytes": 313573376,
+        "processTreeRssBytes": 321110016,
+        "processes": 3
+      },
+      {
+        "turn": 15,
+        "wallMs": 688,
+        "rssBytes": 322584576,
+        "processTreeRssBytes": 329826304,
+        "processes": 3
+      },
+      {
+        "turn": 16,
+        "wallMs": 688,
+        "rssBytes": 339968000,
+        "processTreeRssBytes": 346980352,
+        "processes": 3
+      },
+      {
+        "turn": 17,
+        "wallMs": 698,
+        "rssBytes": 320389120,
+        "processTreeRssBytes": 327073792,
+        "processes": 3
+      },
+      {
+        "turn": 18,
+        "wallMs": 748,
+        "rssBytes": 323698688,
+        "processTreeRssBytes": 330973184,
+        "processes": 3
+      },
+      {
+        "turn": 19,
+        "wallMs": 720,
+        "rssBytes": 336855040,
+        "processTreeRssBytes": 361512960,
+        "processes": 3
+      },
+      {
+        "turn": 20,
+        "wallMs": 689,
+        "rssBytes": 344358912,
+        "processTreeRssBytes": 351191040,
+        "processes": 3
+      },
+      {
+        "turn": 21,
+        "wallMs": 690,
+        "rssBytes": 335298560,
+        "processTreeRssBytes": 342278144,
+        "processes": 3
+      },
+      {
+        "turn": 22,
+        "wallMs": 714,
+        "rssBytes": 327843840,
+        "processTreeRssBytes": 335609856,
+        "processes": 3
+      },
+      {
+        "turn": 23,
+        "wallMs": 718,
+        "rssBytes": 330956800,
+        "processTreeRssBytes": 338575360,
+        "processes": 3
+      },
+      {
+        "turn": 24,
+        "wallMs": 721,
+        "rssBytes": 352796672,
+        "processTreeRssBytes": 359890944,
+        "processes": 3
+      },
+      {
+        "turn": 25,
+        "wallMs": 750,
+        "rssBytes": 348979200,
+        "processTreeRssBytes": 355942400,
+        "processes": 3
+      },
+      {
+        "turn": 26,
+        "wallMs": 716,
+        "rssBytes": 353206272,
+        "processTreeRssBytes": 360759296,
+        "processes": 3
+      },
+      {
+        "turn": 27,
+        "wallMs": 716,
+        "rssBytes": 384958464,
+        "processTreeRssBytes": 391970816,
+        "processes": 3
+      },
+      {
+        "turn": 28,
+        "wallMs": 750,
+        "rssBytes": 355860480,
+        "processTreeRssBytes": 383401984,
+        "processes": 3
+      },
+      {
+        "turn": 29,
+        "wallMs": 717,
+        "rssBytes": 337526784,
+        "processTreeRssBytes": 345096192,
+        "processes": 3
+      },
+      {
+        "turn": 30,
+        "wallMs": 749,
+        "rssBytes": 376684544,
+        "processTreeRssBytes": 404652032,
+        "processes": 3
+      },
+      {
+        "turn": 31,
+        "wallMs": 749,
+        "rssBytes": 363692032,
+        "processTreeRssBytes": 390103040,
+        "processes": 3
+      },
+      {
+        "turn": 32,
+        "wallMs": 748,
+        "rssBytes": 370016256,
+        "processTreeRssBytes": 397885440,
+        "processes": 3
+      },
+      {
+        "turn": 33,
+        "wallMs": 720,
+        "rssBytes": 368869376,
+        "processTreeRssBytes": 375996416,
+        "processes": 3
+      },
+      {
+        "turn": 34,
+        "wallMs": 748,
+        "rssBytes": 384204800,
+        "processTreeRssBytes": 413089792,
+        "processes": 3
+      },
+      {
+        "turn": 35,
+        "wallMs": 717,
+        "rssBytes": 379830272,
+        "processTreeRssBytes": 386809856,
+        "processes": 3
+      },
+      {
+        "turn": 36,
+        "wallMs": 714,
+        "rssBytes": 358334464,
+        "processTreeRssBytes": 363724800,
+        "processes": 2
+      },
+      {
+        "turn": 37,
+        "wallMs": 750,
+        "rssBytes": 367804416,
+        "processTreeRssBytes": 396345344,
+        "processes": 3
+      },
+      {
+        "turn": 38,
+        "wallMs": 717,
+        "rssBytes": 370212864,
+        "processTreeRssBytes": 376782848,
+        "processes": 3
+      },
+      {
+        "turn": 39,
+        "wallMs": 748,
+        "rssBytes": 379207680,
+        "processTreeRssBytes": 405733376,
+        "processes": 3
+      },
+      {
+        "turn": 40,
+        "wallMs": 750,
+        "rssBytes": 370163712,
+        "processTreeRssBytes": 399081472,
+        "processes": 3
+      },
+      {
+        "turn": 41,
+        "wallMs": 751,
+        "rssBytes": 383942656,
+        "processTreeRssBytes": 411942912,
+        "processes": 3
+      },
+      {
+        "turn": 42,
+        "wallMs": 750,
+        "rssBytes": 361611264,
+        "processTreeRssBytes": 386039808,
+        "processes": 3
+      },
+      {
+        "turn": 43,
+        "wallMs": 750,
+        "rssBytes": 352452608,
+        "processTreeRssBytes": 360792064,
+        "processes": 3
+      },
+      {
+        "turn": 44,
+        "wallMs": 752,
+        "rssBytes": 349274112,
+        "processTreeRssBytes": 377241600,
+        "processes": 3
+      },
+      {
+        "turn": 45,
+        "wallMs": 745,
+        "rssBytes": 358744064,
+        "processTreeRssBytes": 366018560,
+        "processes": 3
+      },
+      {
+        "turn": 46,
+        "wallMs": 743,
+        "rssBytes": 356368384,
+        "processTreeRssBytes": 380616704,
+        "processes": 3
+      },
+      {
+        "turn": 47,
+        "wallMs": 752,
+        "rssBytes": 367362048,
+        "processTreeRssBytes": 395018240,
+        "processes": 3
+      },
+      {
+        "turn": 48,
+        "wallMs": 748,
+        "rssBytes": 380633088,
+        "processTreeRssBytes": 388415488,
+        "processes": 3
+      },
+      {
+        "turn": 49,
+        "wallMs": 751,
+        "rssBytes": 398557184,
+        "processTreeRssBytes": 405258240,
+        "processes": 3
+      },
+      {
+        "turn": 50,
+        "wallMs": 753,
+        "rssBytes": 416743424,
+        "processTreeRssBytes": 445562880,
+        "processes": 3
+      },
+      {
+        "turn": 51,
+        "wallMs": 751,
+        "rssBytes": 437321728,
+        "processTreeRssBytes": 445710336,
+        "processes": 3
+      },
+      {
+        "turn": 52,
+        "wallMs": 749,
+        "rssBytes": 386088960,
+        "processTreeRssBytes": 393936896,
+        "processes": 3
+      },
+      {
+        "turn": 53,
+        "wallMs": 723,
+        "rssBytes": 382418944,
+        "processTreeRssBytes": 388136960,
+        "processes": 2
+      },
+      {
+        "turn": 54,
+        "wallMs": 753,
+        "rssBytes": 393379840,
+        "processTreeRssBytes": 421199872,
+        "processes": 3
+      },
+      {
+        "turn": 55,
+        "wallMs": 781,
+        "rssBytes": 411828224,
+        "processTreeRssBytes": 441171968,
+        "processes": 3
+      },
+      {
+        "turn": 56,
+        "wallMs": 750,
+        "rssBytes": 439828480,
+        "processTreeRssBytes": 467402752,
+        "processes": 3
+      },
+      {
+        "turn": 57,
+        "wallMs": 749,
+        "rssBytes": 459374592,
+        "processTreeRssBytes": 484278272,
+        "processes": 3
+      },
+      {
+        "turn": 58,
+        "wallMs": 778,
+        "rssBytes": 435453952,
+        "processTreeRssBytes": 465190912,
+        "processes": 3
+      },
+      {
+        "turn": 59,
+        "wallMs": 752,
+        "rssBytes": 442023936,
+        "processTreeRssBytes": 449052672,
+        "processes": 3
+      },
+      {
+        "turn": 60,
+        "wallMs": 751,
+        "rssBytes": 446054400,
+        "processTreeRssBytes": 474726400,
+        "processes": 3
+      },
+      {
+        "turn": 61,
+        "wallMs": 756,
+        "rssBytes": 435814400,
+        "processTreeRssBytes": 443039744,
+        "processes": 3
+      },
+      {
+        "turn": 62,
+        "wallMs": 782,
+        "rssBytes": 444268544,
+        "processTreeRssBytes": 471318528,
+        "processes": 3
+      },
+      {
+        "turn": 63,
+        "wallMs": 750,
+        "rssBytes": 415481856,
+        "processTreeRssBytes": 423395328,
+        "processes": 3
+      },
+      {
+        "turn": 64,
+        "wallMs": 758,
+        "rssBytes": 432422912,
+        "processTreeRssBytes": 439894016,
+        "processes": 3
+      },
+      {
+        "turn": 65,
+        "wallMs": 753,
+        "rssBytes": 454246400,
+        "processTreeRssBytes": 454393856,
+        "processes": 2
+      },
+      {
+        "turn": 66,
+        "wallMs": 751,
+        "rssBytes": 443809792,
+        "processTreeRssBytes": 471597056,
+        "processes": 3
+      },
+      {
+        "turn": 67,
+        "wallMs": 747,
+        "rssBytes": 444547072,
+        "processTreeRssBytes": 451543040,
+        "processes": 3
+      },
+      {
+        "turn": 68,
+        "wallMs": 781,
+        "rssBytes": 462618624,
+        "processTreeRssBytes": 491307008,
+        "processes": 3
+      },
+      {
+        "turn": 69,
+        "wallMs": 749,
+        "rssBytes": 426196992,
+        "processTreeRssBytes": 451231744,
+        "processes": 3
+      },
+      {
+        "turn": 70,
+        "wallMs": 751,
+        "rssBytes": 454705152,
+        "processTreeRssBytes": 483459072,
+        "processes": 3
+      },
+      {
+        "turn": 71,
+        "wallMs": 750,
+        "rssBytes": 456916992,
+        "processTreeRssBytes": 464273408,
+        "processes": 3
+      },
+      {
+        "turn": 72,
+        "wallMs": 752,
+        "rssBytes": 444825600,
+        "processTreeRssBytes": 456261632,
+        "processes": 3
+      },
+      {
+        "turn": 73,
+        "wallMs": 754,
+        "rssBytes": 474169344,
+        "processTreeRssBytes": 499138560,
+        "processes": 3
+      },
+      {
+        "turn": 74,
+        "wallMs": 753,
+        "rssBytes": 466518016,
+        "processTreeRssBytes": 491962368,
+        "processes": 3
+      },
+      {
+        "turn": 75,
+        "wallMs": 765,
+        "rssBytes": 469549056,
+        "processTreeRssBytes": 476495872,
+        "processes": 3
+      },
+      {
+        "turn": 76,
+        "wallMs": 753,
+        "rssBytes": 464715776,
+        "processTreeRssBytes": 471842816,
+        "processes": 3
+      },
+      {
+        "turn": 77,
+        "wallMs": 747,
+        "rssBytes": 465272832,
+        "processTreeRssBytes": 472268800,
+        "processes": 3
+      },
+      {
+        "turn": 78,
+        "wallMs": 748,
+        "rssBytes": 434569216,
+        "processTreeRssBytes": 434995200,
+        "processes": 2
+      },
+      {
+        "turn": 79,
+        "wallMs": 752,
+        "rssBytes": 473972736,
+        "processTreeRssBytes": 497238016,
+        "processes": 3
+      },
+      {
+        "turn": 80,
+        "wallMs": 746,
+        "rssBytes": 435159040,
+        "processTreeRssBytes": 442580992,
+        "processes": 3
+      },
+      {
+        "turn": 81,
+        "wallMs": 748,
+        "rssBytes": 443777024,
+        "processTreeRssBytes": 451117056,
+        "processes": 3
+      },
+      {
+        "turn": 82,
+        "wallMs": 751,
+        "rssBytes": 435224576,
+        "processTreeRssBytes": 442843136,
+        "processes": 3
+      },
+      {
+        "turn": 83,
+        "wallMs": 749,
+        "rssBytes": 463978496,
+        "processTreeRssBytes": 471482368,
+        "processes": 3
+      },
+      {
+        "turn": 84,
+        "wallMs": 750,
+        "rssBytes": 456982528,
+        "processTreeRssBytes": 482312192,
+        "processes": 3
+      },
+      {
+        "turn": 85,
+        "wallMs": 754,
+        "rssBytes": 485867520,
+        "processTreeRssBytes": 493420544,
+        "processes": 3
+      },
+      {
+        "turn": 86,
+        "wallMs": 751,
+        "rssBytes": 487227392,
+        "processTreeRssBytes": 498941952,
+        "processes": 3
+      },
+      {
+        "turn": 87,
+        "wallMs": 751,
+        "rssBytes": 476545024,
+        "processTreeRssBytes": 503152640,
+        "processes": 3
+      },
+      {
+        "turn": 88,
+        "wallMs": 751,
+        "rssBytes": 478478336,
+        "processTreeRssBytes": 485588992,
+        "processes": 3
+      },
+      {
+        "turn": 89,
+        "wallMs": 753,
+        "rssBytes": 502988800,
+        "processTreeRssBytes": 531021824,
+        "processes": 3
+      },
+      {
+        "turn": 90,
+        "wallMs": 748,
+        "rssBytes": 469516288,
+        "processTreeRssBytes": 477020160,
+        "processes": 3
+      },
+      {
+        "turn": 91,
+        "wallMs": 750,
+        "rssBytes": 501039104,
+        "processTreeRssBytes": 508428288,
+        "processes": 3
+      },
+      {
+        "turn": 92,
+        "wallMs": 757,
+        "rssBytes": 483065856,
+        "processTreeRssBytes": 490684416,
+        "processes": 3
+      },
+      {
+        "turn": 93,
+        "wallMs": 778,
+        "rssBytes": 482541568,
+        "processTreeRssBytes": 509853696,
+        "processes": 3
+      },
+      {
+        "turn": 94,
+        "wallMs": 748,
+        "rssBytes": 477396992,
+        "processTreeRssBytes": 485146624,
+        "processes": 3
+      },
+      {
+        "turn": 95,
+        "wallMs": 748,
+        "rssBytes": 490455040,
+        "processTreeRssBytes": 496418816,
+        "processes": 2
+      },
+      {
+        "turn": 96,
+        "wallMs": 777,
+        "rssBytes": 467828736,
+        "processTreeRssBytes": 474775552,
+        "processes": 3
+      },
+      {
+        "turn": 97,
+        "wallMs": 782,
+        "rssBytes": 494600192,
+        "processTreeRssBytes": 523550720,
+        "processes": 3
+      },
+      {
+        "turn": 98,
+        "wallMs": 749,
+        "rssBytes": 498810880,
+        "processTreeRssBytes": 503840768,
+        "processes": 2
+      },
+      {
+        "turn": 99,
+        "wallMs": 749,
+        "rssBytes": 498040832,
+        "processTreeRssBytes": 504496128,
+        "processes": 3
+      },
+      {
+        "turn": 100,
+        "wallMs": 749,
+        "rssBytes": 472367104,
+        "processTreeRssBytes": 479608832,
+        "processes": 3
+      },
+      {
+        "turn": 101,
+        "wallMs": 757,
+        "rssBytes": 501448704,
+        "processTreeRssBytes": 511737856,
+        "processes": 3
+      },
+      {
+        "turn": 102,
+        "wallMs": 748,
+        "rssBytes": 494813184,
+        "processTreeRssBytes": 502349824,
+        "processes": 3
+      },
+      {
+        "turn": 103,
+        "wallMs": 747,
+        "rssBytes": 489308160,
+        "processTreeRssBytes": 496566272,
+        "processes": 3
+      },
+      {
+        "turn": 104,
+        "wallMs": 780,
+        "rssBytes": 452902912,
+        "processTreeRssBytes": 479510528,
+        "processes": 3
+      },
+      {
+        "turn": 105,
+        "wallMs": 777,
+        "rssBytes": 450101248,
+        "processTreeRssBytes": 457408512,
+        "processes": 3
+      },
+      {
+        "turn": 106,
+        "wallMs": 749,
+        "rssBytes": 486604800,
+        "processTreeRssBytes": 493387776,
+        "processes": 3
+      },
+      {
+        "turn": 107,
+        "wallMs": 784,
+        "rssBytes": 492240896,
+        "processTreeRssBytes": 499466240,
+        "processes": 3
+      },
+      {
+        "turn": 108,
+        "wallMs": 781,
+        "rssBytes": 510640128,
+        "processTreeRssBytes": 518127616,
+        "processes": 3
+      },
+      {
+        "turn": 109,
+        "wallMs": 779,
+        "rssBytes": 490405888,
+        "processTreeRssBytes": 497123328,
+        "processes": 3
+      },
+      {
+        "turn": 110,
+        "wallMs": 779,
+        "rssBytes": 499826688,
+        "processTreeRssBytes": 507248640,
+        "processes": 3
+      },
+      {
+        "turn": 111,
+        "wallMs": 781,
+        "rssBytes": 512983040,
+        "processTreeRssBytes": 519847936,
+        "processes": 3
+      },
+      {
+        "turn": 112,
+        "wallMs": 779,
+        "rssBytes": 498417664,
+        "processTreeRssBytes": 505970688,
+        "processes": 3
+      },
+      {
+        "turn": 113,
+        "wallMs": 778,
+        "rssBytes": 476807168,
+        "processTreeRssBytes": 483229696,
+        "processes": 2
+      },
+      {
+        "turn": 114,
+        "wallMs": 746,
+        "rssBytes": 479051776,
+        "processTreeRssBytes": 483737600,
+        "processes": 2
+      },
+      {
+        "turn": 115,
+        "wallMs": 749,
+        "rssBytes": 500482048,
+        "processTreeRssBytes": 507445248,
+        "processes": 3
+      },
+      {
+        "turn": 116,
+        "wallMs": 780,
+        "rssBytes": 484278272,
+        "processTreeRssBytes": 491618304,
+        "processes": 3
+      },
+      {
+        "turn": 117,
+        "wallMs": 748,
+        "rssBytes": 484294656,
+        "processTreeRssBytes": 491290624,
+        "processes": 3
+      },
+      {
+        "turn": 118,
+        "wallMs": 781,
+        "rssBytes": 481738752,
+        "processTreeRssBytes": 488783872,
+        "processes": 3
+      },
+      {
+        "turn": 119,
+        "wallMs": 785,
+        "rssBytes": 505888768,
+        "processTreeRssBytes": 513343488,
+        "processes": 3
+      },
+      {
+        "turn": 120,
+        "wallMs": 783,
+        "rssBytes": 512655360,
+        "processTreeRssBytes": 519864320,
+        "processes": 3
+      }
+    ]
+  },
+  "checks": [
+    "clean packed install",
+    "saved connection",
+    "first-run quick start",
+    "bracketed paste",
+    "streamed Markdown/code",
+    "long output",
+    "history scroll",
+    "32x10 resize",
+    "execution list",
+    "clean exit",
+    "durable reopen",
+    "saved-model picker cancellation",
+    "theme preview restores draft",
+    "no-color preference save",
+    "light theme persists",
+    "live dark theme",
+    "actual color captures",
+    "native R opening",
+    "orange preset",
+    "file-write approval",
+    "real applied patch and line counts",
+    "collapsed details and checklist",
+    "click read/edit/change-summary snapshots",
+    "activity navigation preserves draft",
+    "working child and inspector",
+    "legacy view aliases",
+    "permission picker and applied mode",
+    "Escape cancels full access",
+    "team navigation before children",
+    "unified/split/original/updated review",
+    "narrow diff fallback",
+    "review scope picker and applied/committed/all/base snapshots",
+    "source and file picker",
+    "source and branch inspection",
+    "usage availability labels",
+    "rename/pin/archive/restore/copy",
+    "chat menu cancellation",
+    "organized history survives restart"
+  ]
+}

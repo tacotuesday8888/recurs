@@ -84,6 +84,25 @@ describe("built-in company benchmark scenarios", () => {
     expect(verified.checks.filter(check => check.id.startsWith("hidden_")).map(check => check.id)).toEqual(scenario.hiddenCheckIds);
   });
 
+  it("keeps build v1 grading frozen while v2 rejects a non-enumerable membership bug", async () => {
+    const original = getCompanyBenchmarkScenario("incremental_build_repair", 1);
+    const corrected = getCompanyBenchmarkScenario("incremental_build_repair", 2);
+    expect(getCompanyBenchmarkScenario("incremental_build_repair").version).toBe(2);
+    expect(corrected.fixtureSha256).toBe(original.fixtureSha256);
+    expect(corrected.verifierId).not.toBe(original.verifierId);
+    const root = await workspace();
+    const prepared = await initializeCompanyBenchmarkWorkspace({ scenario: original, workspaceRoot: root, processRunner: containedTestRunner });
+    const reference = PRODUCT_TASK_REFERENCES.incremental_build_repair!;
+    for (const [file, source] of Object.entries(reference)) {
+      await writeFile(path.join(root, file), file === "src/plan.js" ? source.replace("present.has(name)", "Object.hasOwn(current,name)") : source);
+    }
+    const frozen = await verifyCompanyBenchmarkWorkspace({ scenario: original, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    const checked = await verifyCompanyBenchmarkWorkspace({ scenario: corrected, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(frozen.status).toBe("passed");
+    expect(checked.status).toBe("failed");
+    expect(checked.checks.find((check) => check.id === "hidden_build_ownership")?.status).toBe("failed");
+  });
+
   it("preserves historical digests while adding three task-fit fixtures", () => {
     expect(COMPANY_BENCHMARK_SCENARIOS.map((scenario) => scenario.id)).toEqual([
       "alias_registry",
@@ -95,6 +114,7 @@ describe("built-in company benchmark scenarios", () => {
       "queue_cancellation",
       "workspace_maintenance",
       "shipment_quote", "incremental_build_repair", "release_window_regressions",
+      "incremental_build_repair",
     ]);
     const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
 
@@ -128,7 +148,7 @@ describe("built-in company benchmark scenarios", () => {
       ["workspace_maintenance", "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1"],
     ]);
     for (const candidate of COMPANY_BENCHMARK_SCENARIOS) {
-      expect(candidate.hiddenCheckIds).toHaveLength(candidate.id in PRODUCT_TASK_REFERENCES ? 4 : 3);
+      expect(candidate.hiddenCheckIds).toHaveLength(candidate.id === "incremental_build_repair" && candidate.version === 2 ? 5 : candidate.id in PRODUCT_TASK_REFERENCES ? 4 : 3);
       expect(getCompanyBenchmarkScenario(candidate.id, candidate.version)).toBe(candidate);
     }
     expect(getCompanyBenchmarkScenario("alias_registry", 1)).toBe(scenario);
