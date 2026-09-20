@@ -307,3 +307,58 @@ describe("JsonlSessionStore", () => {
     });
   });
 });
+
+describe("streamed session summaries", () => {
+  const header = { version: 1, type: "session_created", sessionId: "s1", at: createdAt, cwd: "/workspace", model: "fixture" };
+  const message = { version: 1, type: "message_appended", sessionId: "s1", at: "2026-09-20T00:00:00Z", message: { role: "assistant", content: "界面🙂".repeat(30_000) } };
+
+  it("lists multi-chunk UTF-8 records using the same validated endpoints", async () => {
+    const directory = await temporaryDirectory();
+    await writeFile(path.join(directory, "s1.jsonl"), [header, message, message].map(record => JSON.stringify(record)).join("\n") + "\n");
+    const store = new JsonlSessionStore(directory);
+    expect(await store.list()).toMatchObject([{ id: "s1", version: 1, cwd: "/workspace", model: "fixture", updatedAt: message.at }]);
+    expect((await store.load("s1")).records).toEqual([header, message, message]);
+  });
+
+  it.each([
+    ["malformed middle record", Buffer.from("not-json\n")],
+    ["wrong session", Buffer.from(JSON.stringify({ ...message, sessionId: "foreign" }) + "\n")],
+    ["invalid UTF-8", Buffer.from([0xff, 0x0a])],
+    ["blank record", Buffer.from("\n")],
+    ["BOM inside the log", Buffer.from("\ufeff" + JSON.stringify(message) + "\n")],
+  ])("still rejects %s before a valid final record", async (_name, invalid) => {
+    const directory = await temporaryDirectory();
+    const file = path.join(directory, "s1.jsonl");
+    const data = Buffer.concat([Buffer.from(JSON.stringify(header) + "\n"), invalid, Buffer.from(JSON.stringify(message) + "\n")]);
+    await writeFile(file, data);
+    await expect(new JsonlSessionStore(directory).list()).rejects.toBeInstanceOf(SessionStoreError);
+    expect(await readFile(file)).toEqual(data);
+  });
+
+  it("accepts a file-leading BOM just like loading the whole log", async () => {
+    const directory = await temporaryDirectory();
+    await writeFile(path.join(directory, "s1.jsonl"), "\ufeff" + JSON.stringify(header) + "\n");
+    const store = new JsonlSessionStore(directory);
+    expect(await store.list()).toMatchObject([{ id: "s1", updatedAt: createdAt }]);
+    expect((await store.load("s1")).records).toEqual([header]);
+  });
+
+  it("uses the existing locked recovery for an incomplete multibyte tail", async () => {
+    const directory = await temporaryDirectory();
+    const file = path.join(directory, "s1.jsonl");
+    const durable = Buffer.from(JSON.stringify(header) + "\n");
+    const tail = Buffer.from([0xe7, 0x95]);
+    await writeFile(file, Buffer.concat([durable, tail]));
+    expect(await new JsonlSessionStore(directory).list()).toMatchObject([{ id: "s1", updatedAt: createdAt }]);
+    expect(await readFile(file)).toEqual(durable);
+    expect(await readFile(file + ".quarantine")).toEqual(Buffer.concat([tail, Buffer.from("\n")]));
+  });
+
+  it("still validates sequences after the first record", async () => {
+    const directory = await temporaryDirectory();
+    const store = new JsonlSessionStore(directory);
+    await store.createPinnedSession({ id: "s1", at: createdAt, cwd: "/workspace", backend: testBackendPin() });
+    await appendFile(path.join(directory, "s1.jsonl"), JSON.stringify({ version: 2, type: "goal_updated", sessionId: "s1", sequence: 9, source: "command", at: createdAt, goal: activeGoal("fixture", createdAt) }) + "\n");
+    await expect(store.list()).rejects.toMatchObject({ code: "invalid_record" });
+  });
+});

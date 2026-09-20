@@ -10,6 +10,11 @@ Source baseline: `8262da0b68321acad4d7d33c45f4589a06556b96`. The fixes and
 measurement tooling accompany this document. No live model campaign, npm release,
 or website deployment was performed for this audit.
 
+The [stress-test follow-up](QUALITY_STRESS_FOLLOWUP.md) addresses the verifier
+gap, captures future completed repair candidates, and replaces whole-log
+history listing with streaming validation. The findings and measurements below
+describe the original audit baseline; the follow-up records the later evidence.
+
 ## Findings and disposition
 
 | Priority | Evidence | Disposition |

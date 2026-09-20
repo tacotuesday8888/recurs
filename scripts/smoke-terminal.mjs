@@ -18,6 +18,8 @@ import xterm from "@xterm/headless";
 import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
 
 const interactive = process.argv.includes("--interactive");
+const stress = process.argv.includes("--stress");
+const stressSamples = [];
 if (interactive && (!process.stdin.isTTY || !process.stdout.isTTY)) {
   console.error("Run the UI walkthrough in an interactive terminal.");
   process.exit(1);
@@ -105,7 +107,10 @@ const server = createServer(async (request, response) => {
       return;
     }
   }
-  const text = String(prompt).includes("Handle whitespace and empty entries in comma-separated input.")
+  const stressTurn = /^stress-turn-(\d+)$/u.exec(String(prompt));
+  const text = stressTurn !== null
+    ? Array.from({ length: 160 }, (_, index) => `Synthetic stress line ${index}: bounded output and Unicode 界面🙂.\n`).join("") + `\nSTRESS DONE ${stressTurn[1]}`
+    : String(prompt).includes("Handle whitespace and empty entries in comma-separated input.")
     ? "Updated the parser.\n\n- [x] Read parser.ts\n- [x] Handle whitespace and empty entries\n- [x] Run 4 parser checks\n\nReady for review."
     : String(prompt).includes("long output")
     ? Array.from({ length: 65 }, (_, index) => `Inspection line ${index}: parser boundary checked.\n\n`).join("")
@@ -223,6 +228,35 @@ try {
   ui.process.write("\u001b[200~Review parser.ts\u001b[201~\r");
   await ui.wait((screen) => screen.includes("Ready for review."), "streamed Markdown");
   await ui.wait((screen) => screen.includes("Parent · ready"), "completed parent status");
+  if (stress) {
+    for (let turn = 1; turn <= 120; turn += 1) {
+      const started = performance.now();
+      ui.process.write(`stress-turn-${turn}\r`);
+      await ui.wait((screen) => screen.includes(`STRESS DONE ${turn}`) && screen.includes("Parent · ready"), `stress turn ${turn}`);
+      const { stdout } = await exec("ps", ["-axo", "pid=,ppid=,rss="]);
+      const processes = stdout.trim().split("\n").map(line => line.trim().split(/\s+/u).map(Number));
+      const owned = new Set([ui.process.pid]);
+      let previousSize;
+      do {
+        previousSize = owned.size;
+        for (const [pid, parent] of processes) if (owned.has(parent)) owned.add(pid);
+      } while (owned.size !== previousSize);
+      const rows = processes.filter(([pid]) => owned.has(pid));
+      assert(rows.some(([pid]) => pid === ui.process.pid), "live terminal PID must be measurable");
+      stressSamples.push({ turn, wallMs: Math.round(performance.now() - started), rssBytes: rows.find(([pid]) => pid === ui.process.pid)[2] * 1024, processTreeRssBytes: rows.reduce((sum, row) => sum + row[2] * 1024, 0), processes: rows.length });
+      if (turn % 20 === 0) console.error(`Terminal stress: ${turn}/120 streamed turns completed.`);
+      if (turn % 5 === 0) {
+        ui.process.write(`stress-draft-${turn}`);
+        ui.process.resize(32, 10); ui.terminal.resize(32, 10);
+        ui.process.resize(100, 30); ui.terminal.resize(100, 30);
+        ui.process.write("\u001b[12~");
+        await ui.wait((screen) => screen.includes("Appearance"), "stress appearance navigation");
+        ui.process.write("\u001b");
+        await ui.wait((screen) => screen.includes(`stress-draft-${turn}`), "stress draft survives navigation and resize");
+        ui.process.write("\u0015");
+      }
+    }
+  }
   ui.process.write("/model\r");
   await ui.wait((screen) => screen.includes("Esc cancel") && screen.includes("terminal-fixture"), "saved model picker");
   ui.process.write("\u001b");
@@ -504,7 +538,7 @@ try {
   await organized.wait(() => organized.exit() !== undefined, "organized restart exit");
   organized.terminal.dispose();
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, ...(stress ? { stress: { method: "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof", samples: stressSamples } } : {}), checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart"], capture: temporary }, null, 2));
 } finally {
   if (recordingTimer) clearInterval(recordingTimer);
   releaseChild();

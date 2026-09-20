@@ -537,14 +537,22 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
       }`,
     ).toHaveLength(1);
     const artifactNames = await readdir(path.join(root, "artifacts"));
-    expect(artifactNames).toHaveLength(2);
+    const manifests = await Promise.all(artifactNames.map(async (name) => JSON.parse(await readFile(path.join(root, "artifacts", name, "manifest.json"), "utf8"))));
+    expect(manifests.filter((manifest) => manifest.trial !== null)).toHaveLength(2);
+    const staged = manifests.filter((manifest) => manifest.candidate !== undefined);
+    expect(staged.length).toBeGreaterThanOrEqual(2);
+    expect(staged.map((manifest) => manifest.candidate.phase)).toContain("implementation");
+    expect(staged.map((manifest) => manifest.candidate.phase)).toContain("repair");
+    expect(manifests.find((manifest) => manifest.trial?.armKind === "company").teamDiagnostics.some((run: { stagedCandidate: string }) => run.stagedCandidate === "retained")).toBe(true);
     for (const name of artifactNames) {
       const artifact = path.join(root, "artifacts", name);
       expect((await readdir(artifact)).sort()).toEqual(["candidate", "fixture", "manifest.json"]);
       const manifest = JSON.parse(await readFile(path.join(artifact, "manifest.json"), "utf8"));
       expect(manifest.files.every((file: { status: string }) => file.status === "retained")).toBe(true);
-      expect(manifest.trial.verification.status).toBe("passed");
-      expect(await readFile(path.join(artifact, "candidate/src/alias-path.js"), "utf8")).toBe(correctAliasPath);
+      if (manifest.trial !== null) {
+        expect(manifest.trial.verification.status).toBe("passed");
+        expect(await readFile(path.join(artifact, "candidate/src/alias-path.js"), "utf8")).toBe(correctAliasPath);
+      }
     }
     expect(provider.baselineDelegationRejected).toBe(true);
     expect(baseline.activatedRoutes.map((item) => item.role)).toEqual(["parent"]);

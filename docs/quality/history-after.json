@@ -1,0 +1,32 @@
+{
+  "moduleSha256": "ae8c50e55b8e4664d11e2bf5504e6ac386fc1f4a7f41e85d22837ffef61a8e1f",
+  "node": "v24.19.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "fixture": {
+    "sessions": 4,
+    "messagesPerSession": 1024,
+    "bytes": 34120200
+  },
+  "method": "Three fresh child processes after a discarded warmup; complete synthetic legacy logs, no crash-tail recovery; parent RSS only; no provider calls.",
+  "samples": [
+    {
+      "repetition": 1,
+      "wallMs": 40.554834,
+      "peakRssBytes": 69550080,
+      "entries": 4
+    },
+    {
+      "repetition": 2,
+      "wallMs": 41.704916999999995,
+      "peakRssBytes": 68796416,
+      "entries": 4
+    },
+    {
+      "repetition": 3,
+      "wallMs": 41.330625,
+      "peakRssBytes": 69599232,
+      "entries": 4
+    }
+  ]
+}

@@ -46,7 +46,7 @@ import { createStandaloneRuntime } from "./assembly.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RuntimeError } from "./runtime.js";
 
-import { retainCompanyBenchmarkArtifacts } from "./company-benchmark-artifacts.js";
+import { retainCompanyBenchmarkArtifacts, type RetainedBenchmarkCandidate } from "./company-benchmark-artifacts.js";
 
 const LAUNCH_INVOCATION = createHostInvocation({
   invocation: "goal",
@@ -301,6 +301,8 @@ export class RuntimeCompanyBenchmarkAdapter
     const startedAtMs = nowMs();
     let retainedTrial: CompanyBenchmarkTrialV1 | null = null;
     let retainedTeamRuns: readonly TeamRunState[] = [];
+    const stagedCandidates: RetainedBenchmarkCandidate[] = [];
+    let candidateCaptures = 0;
     let runtime: Awaited<ReturnType<typeof createStandaloneRuntime>> | null =
       null;
     let recorder: CompanyBenchmarkExecutionRecorder | null = null;
@@ -371,6 +373,23 @@ export class RuntimeCompanyBenchmarkAdapter
       runtime = await createStandaloneRuntime(events, {
         cwd: workspace,
         dataDirectory,
+        ...(this.#options.artifactsDirectory === undefined ? {} : {
+          observeTeamCandidate: async (candidate) => {
+            try {
+              // Bound storage per declared slot, even across many nested teams.
+              if (++candidateCaptures > 32) throw new Error("Candidate capture limit reached");
+              const metadata = { runId: candidate.runId, round: candidate.round, phase: candidate.phase, artifactSha256: candidate.artifact.sha256 };
+              const directory = await retainCompanyBenchmarkArtifacts({
+                directory: this.#options.artifactsDirectory!, workspace: candidate.workspace,
+                scenario, trial: null, campaignId: input.campaign.id, slotId: input.slot.slotId,
+                candidate: metadata,
+              });
+              stagedCandidates.push({ ...metadata, directory: path.basename(directory) });
+            } catch {
+              try { await this.#options.onArtifactError?.(); } catch { /* preserve measured execution */ }
+            }
+          },
+        }),
         skillHomeDirectory: dataDirectory,
         reuseExistingSession: false,
         delegationEnabled: arm.kind === "company" || input.campaign.launchProtocolRevision === "company-benchmark-launch-v1",
@@ -545,6 +564,7 @@ export class RuntimeCompanyBenchmarkAdapter
             workspace, scenario, trial: retainedTrial,
             campaignId: input.campaign.id, slotId: input.slot.slotId,
             teamRuns: retainedTeamRuns,
+            stagedCandidates,
           });
         } catch {
           // Optional capture failure must never discard the measured trial.

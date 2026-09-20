@@ -61,7 +61,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run package:smoke-install
-      - run: npm run package:smoke-terminal
+      - run: npm run package:stress-terminal
       - run: npm run package:smoke-extensions
 
   verify-bun-installer:

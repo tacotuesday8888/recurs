@@ -122,7 +122,7 @@ describe("company benchmark command", () => {
     expect(listed.scenarios.map(({ id, version }) => `${id}:v${version}`)).toEqual([
       "alias_registry:v1", "layered_config:v1", "retry_after:v1",
       "options_precedence:v1", "queue_cancellation:v2", "workspace_maintenance:v2",
-      "shipment_quote:v1", "incremental_build_repair:v1", "release_window_regressions:v1",
+      "shipment_quote:v1", "release_window_regressions:v1", "incremental_build_repair:v2",
     ]);
     for (const scenario of listed.scenarios) {
       const campaign = createConfiguredCompanyBenchmarkCampaign({

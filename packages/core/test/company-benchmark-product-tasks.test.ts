@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { PRODUCT_TASK_SPECS, type ProductTaskSpec } from "../src/company-benchmark-product-tasks.js";
+import { BUILD_REPAIR_V2_SPEC, PRODUCT_TASK_SPECS, type ProductTaskSpec } from "../src/company-benchmark-product-tasks.js";
 import { PRODUCT_TASK_REFERENCES } from "./company-benchmark-product-reference.js";
 
 const execute = promisify(execFile);
@@ -77,6 +77,28 @@ async function evaluate(task: ProductTaskSpec, patches: Patches = {}, visible = 
 function failed(checks: Result[]): string[] {
   return checks.filter(check => check.status === "failed").map(check => check.id);
 }
+
+describe("corrected build verifier v2", () => {
+  it("accepts the complete reference and rejects unchanged source", async () => {
+    expect(failed(await evaluate(BUILD_REPAIR_V2_SPEC, reference("incremental_build_repair"), true))).toEqual([]);
+    expect(failed(await evaluate(BUILD_REPAIR_V2_SPEC))).toContain("hidden_build_ownership");
+  });
+
+  for (const [file, before, after] of [
+    ["src/changes.js", "!oldKeys.has(name)", "!Object.hasOwn(previous,name)"],
+    ["src/changes.js", "!newKeys.has(name)", "!Object.hasOwn(current,name)"],
+    ["src/dependents.js", "changed.filter(name => names.has(name))", "changed.filter(name => Object.hasOwn(graph,name))"],
+    ["src/plan.js", "present.has(name)", "Object.hasOwn(current,name)"],
+  ]) {
+    it(`detects the previously missed ownership mutation in ${file}: ${before}`, async () => {
+      const good = reference("incremental_build_repair");
+      expect(good[file!]).toContain(before);
+      const bad = { ...good, [file!]: good[file!]!.replace(before!, after!) };
+      expect(failed(await evaluate(spec("incremental_build_repair"), bad))).toEqual([]);
+      expect(failed(await evaluate(BUILD_REPAIR_V2_SPEC, bad))).toContain("hidden_build_ownership");
+    });
+  }
+});
 
 describe("fresh product task fixtures and hidden checks", () => {
   it("keeps complete acceptance text and all hidden/reference code outside bounded fixtures", () => {

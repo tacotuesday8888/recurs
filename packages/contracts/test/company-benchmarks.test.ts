@@ -323,7 +323,7 @@ describe("official Codex benchmark control authority", () => {
 });
 
 describe("company benchmark campaign contracts", () => {
-  it.each(["queue_cancellation", "workspace_maintenance"])(
+  it.each(["queue_cancellation", "workspace_maintenance", "incremental_build_repair"])(
     "preserves the declared v2 scenario version for %s",
     (id) => {
       const value = campaignValue();

@@ -366,3 +366,22 @@ test('checker accepts the working release scheduler on repeated invocations', as
     }],`).join("\n"),
   },
 ]);
+
+/** Versioned correction: retain the frozen v1 verifier and append contract probes. */
+const buildV1 = PRODUCT_TASK_SPECS.find((task) => task.id === "incremental_build_repair")!;
+export const BUILD_REPAIR_V2_SPEC: ProductTaskSpec = Object.freeze({
+  ...buildV1,
+  checkIds: [...buildV1.checkIds, "hidden_build_ownership"],
+  hiddenChecks: buildV1.hiddenChecks + `
+    ['hidden_build_ownership', async () => {
+      const { diffSnapshots } = await load('src/changes.js');
+      const { affectedModules } = await load('src/dependents.js');
+      const { planBuild } = await load('src/plan.js');
+      const hidden = (name, value, visible = {}) => Object.freeze(Object.defineProperty(visible, name, {value, enumerable:false}));
+      deepEqual(diffSnapshots(hidden('module','same'), {module:'same'}), {changed:['module'],removed:[]});
+      deepEqual(diffSnapshots({module:'same'}, hidden('module','same')), {changed:[],removed:['module']});
+      deepEqual(affectedModules(hidden('ghost',Object.freeze([])), ['ghost']), []);
+      const graph = Object.freeze({app:Object.freeze(['lib']),lib:Object.freeze([])});
+      deepEqual(planBuild(graph, {app:'same',lib:'old'}, hidden('app','same',{lib:'new'})), {changed:['lib'],removed:['app'],build:['lib']});
+    }],`,
+});

@@ -176,7 +176,17 @@ export const TEAM_APPLY_PERMISSION = Object.freeze({
   risk: "elevated" as const,
 });
 
+export interface TeamCandidateObservation {
+  readonly runId: string;
+  readonly round: number;
+  readonly phase: "implementation" | "repair";
+  readonly workspace: string;
+  readonly artifact: GitPatchArtifactHandle;
+}
+
 export interface TeamRunSupervisorDependencies {
+  /** Optional host-owned evidence capture, before review/cleanup; never grants authority. */
+  readonly observeCandidate?: (candidate: TeamCandidateObservation) => Promise<void>;
   readonly sessions: Pick<JsonlSessionStore, "loadState">;
   readonly runs: Pick<JsonlTeamRunStore, "create" | "append" | "load" | "list">;
   readonly owners: Pick<TeamRunOwnerLeaseManager, "tryAcquire">;
@@ -1843,6 +1853,7 @@ export class TeamRunSupervisor {
         );
       }
       reviewSnapshots.push(initialSnapshot);
+      await this.#observeCandidate({ runId: descriptor.id, round: 0, phase: "implementation", workspace: stageLease.worktreeRoot, artifact: initialSnapshot });
       let reviewedSnapshot = initialSnapshot;
       let changedFiles = [...reviewedSnapshot.paths];
       let round = 0;
@@ -1978,6 +1989,7 @@ export class TeamRunSupervisor {
           );
         }
         reviewSnapshots.push(repairedSnapshot);
+        await this.#observeCandidate({ runId: descriptor.id, round, phase: "repair", workspace: stageLease.worktreeRoot, artifact: repairedSnapshot });
         evidence.push(...repair.metadata.evidence);
         executionEvidence.push(...repair.metadata.evidence);
         if (sameCandidateContent(reviewedSnapshot, repairedSnapshot)) {
@@ -2183,6 +2195,15 @@ export class TeamRunSupervisor {
       } finally {
         await owner.release();
       }
+    }
+  }
+
+  async #observeCandidate(candidate: TeamCandidateObservation): Promise<void> {
+    try {
+      await this.dependencies.observeCandidate?.(candidate);
+    } catch {
+      // Optional diagnostics must not change review, repair, apply, or cleanup.
+      // The host callback owns reporting capture failures to its caller.
     }
   }
 

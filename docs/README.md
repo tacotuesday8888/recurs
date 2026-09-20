@@ -2,6 +2,8 @@
 
 Current published alpha: `0.1.0-alpha.11`. Current documents:
 
+- [Quality stress follow-up](QUALITY_STRESS_FOLLOWUP.md) — benchmark corrections,
+  retained repair evidence, measured history memory, and terminal/browser checks.
 - [Product polish](PRODUCT_POLISH.md) — alpha.11 implementation, comparisons and verified publication.
 - [Appearance](APPEARANCE.md) — theme preview, semantic colors and persistence.
 

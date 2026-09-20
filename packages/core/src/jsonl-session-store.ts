@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
+import { createReadStream } from "node:fs";
 
 import type {
   AgentSessionDescriptor,
@@ -77,6 +78,7 @@ export interface SessionMutationLease {
 }
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const utf8RecordDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 class IncompleteSessionTailError extends Error {
   constructor(
@@ -200,9 +202,9 @@ async function truncateAndSync(file: string, byteLength: number): Promise<void> 
   }
 }
 
-function decodeUtf8(bytes: Uint8Array, sessionId: string): string {
+function decodeUtf8(bytes: Uint8Array, sessionId: string, preserveBom = false): string {
   try {
-    return utf8Decoder.decode(bytes);
+    return (preserveBom ? utf8RecordDecoder : utf8Decoder).decode(bytes);
   } catch (error) {
     throw new SessionStoreError(
       "corrupt_log",
@@ -626,46 +628,65 @@ export class JsonlSessionStore {
 
     const records: AnySessionRecord[] = [];
     for (const [index, line] of lines.entries()) {
-      try {
-        const parsed: unknown = JSON.parse(line);
-        const record = isObject(parsed) && parsed.version === 2
-          ? parseSessionRecordV2(parsed, sessionId)
-          : isSessionRecord(parsed, sessionId)
-            ? parsed
-            : null;
-        if (record === null) {
-          throw new SessionStoreError(
-            "invalid_record",
-            `Invalid session record at line ${index + 1}`,
-          );
-        }
-        const previous = records.at(-1);
-        if (previous !== undefined && previous.version !== record.version) {
-          throw new SessionStoreError(
-            "invalid_record",
-            `Mixed session record versions at line ${index + 1}`,
-          );
-        }
-        if (record.version === 2 && record.sequence !== index) {
-          throw new SessionStoreError(
-            "invalid_record",
-            `Expected sequence ${index} at line ${index + 1}`,
-          );
-        }
-        records.push(record);
-      } catch (error) {
-        if (error instanceof SessionStoreError) {
-          throw error;
-        }
-        throw new SessionStoreError(
-          "corrupt_log",
-          `Corrupt session record at line ${index + 1}`,
-          { cause: error },
-        );
-      }
+      records.push(this.#parseRecord(sessionId, line, index, records.at(-1)?.version));
     }
-
     return records;
+  }
+
+  #parseRecord(sessionId: string, line: string, index: number, previousVersion: number | undefined): AnySessionRecord {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      const record = isObject(parsed) && parsed.version === 2
+        ? parseSessionRecordV2(parsed, sessionId)
+        : isSessionRecord(parsed, sessionId) ? parsed : null;
+      if (record === null) {
+        throw new SessionStoreError("invalid_record", `Invalid session record at line ${index + 1}`);
+      }
+      if (previousVersion !== undefined && previousVersion !== record.version) {
+        throw new SessionStoreError("invalid_record", `Mixed session record versions at line ${index + 1}`);
+      }
+      if (record.version === 2 && record.sequence !== index) {
+        throw new SessionStoreError("invalid_record", `Expected sequence ${index} at line ${index + 1}`);
+      }
+      return record;
+    } catch (error) {
+      if (error instanceof SessionStoreError) throw error;
+      throw new SessionStoreError("corrupt_log", `Corrupt session record at line ${index + 1}`, { cause: error });
+    }
+  }
+
+  /** Validate every record while retaining only the endpoints needed by history. */
+  async #readSummary(sessionId: string): Promise<{ first: AnySessionRecord | undefined; last: AnySessionRecord | undefined }> {
+    let first: AnySessionRecord | undefined;
+    let last: AnySessionRecord | undefined;
+    let index = 0;
+    let fragments: Uint8Array[] = [];
+    try {
+      for await (const chunk of createReadStream(this.#file(sessionId), { highWaterMark: 64 * 1024 })) {
+        let start = 0;
+        for (let end = chunk.indexOf(0x0a, start); end !== -1; end = chunk.indexOf(0x0a, start)) {
+          const fragment = chunk.subarray(start, end);
+          const bytes = fragments.length === 0 ? fragment : Buffer.concat([...fragments, fragment]);
+          // Only a file-leading BOM is ignored, matching whole-file decoding.
+          const line = decodeUtf8(bytes, sessionId, index > 0);
+          const record = this.#parseRecord(sessionId, line, index++, last?.version);
+          first ??= record;
+          last = record;
+          fragments = [];
+          start = end + 1;
+        }
+        if (start < chunk.length) fragments.push(chunk.subarray(start));
+      }
+    } catch (error) {
+      if (isObject(error) && error.code === "ENOENT") return { first: undefined, last: undefined };
+      throw error;
+    }
+    if (fragments.length > 0) {
+      // Preserve existing locked quarantine/recovery semantics for a crash tail.
+      const recovered = await this.load(sessionId);
+      return { first: recovered.records[0], last: recovered.records.at(-1) };
+    }
+    return { first, last };
   }
 
   async loadState(
@@ -759,9 +780,7 @@ export class JsonlSessionStore {
     const entries: SessionListEntry[] = [];
     for (const file of files) {
       const id = file.slice(0, -".jsonl".length);
-      const loaded = await this.load(id);
-      const first = loaded.records[0];
-      const last = loaded.records.at(-1);
+      const { first, last } = await this.#readSummary(id);
       if (first?.type !== "session_created" || last === undefined) {
         throw new SessionStoreError(
           "corrupt_log",

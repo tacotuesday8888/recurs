@@ -21,7 +21,7 @@ import path from "node:path";
 
 import { runProcess, ToolError } from "@recurs/tools";
 
-import { PRODUCT_TASK_SPECS } from "./company-benchmark-product-tasks.js";
+import { BUILD_REPAIR_V2_SPEC, PRODUCT_TASK_SPECS } from "./company-benchmark-product-tasks.js";
 import { TASK_FIT_SPECS } from "./company-benchmark-task-fit.js";
 
 const FILE_MODE = 0o644;
@@ -65,6 +65,7 @@ export type CompanyBenchmarkHiddenCheckId =
   | "hidden_options_values" | "hidden_options_ownership" | "hidden_options_immutability"
   | "hidden_queue_failures" | "hidden_queue_cancellation" | "hidden_queue_running"
   | "hidden_shipment_cart" | "hidden_shipment_validation" | "hidden_shipment_rates" | "hidden_shipment_integration"
+  | "hidden_build_ownership"
   | "hidden_build_snapshots" | "hidden_build_transitive" | "hidden_build_cycles" | "hidden_build_integration"
   | "hidden_release_reference" | "hidden_release_boundaries" | "hidden_release_paused" | "hidden_release_priority"
   | "hidden_maintenance_paths" | "hidden_maintenance_env" | "hidden_maintenance_redact";
@@ -476,6 +477,12 @@ export const COMPANY_BENCHMARK_SCENARIOS = Object.freeze([
   ...taskFitScenarios,
   ...correctedTaskFitScenarios,
   ...productScenarios,
+  Object.freeze({
+    ...productScenarios.find((scenario) => scenario.id === "incremental_build_repair")!,
+    version: 2 as const,
+    verifierId: "incremental_build_repair_hidden_v2",
+    hiddenCheckIds: Object.freeze(BUILD_REPAIR_V2_SPEC.checkIds as CompanyBenchmarkHiddenCheckId[]),
+  }),
 ] as const);
 
 export function getCompanyBenchmarkScenario(
@@ -917,6 +924,9 @@ function hiddenVerifierSource(
       .replace("equal(additions, removals);", "equal(inspectListeners(signal, 'abort').length, 0);");
     if (checks === spec.hiddenChecks || checks.includes("additions")) throw new TypeError("Frozen queue verifier transformation failed");
     return hiddenVerifierProgram(checks, "import { getEventListeners } from 'node:events';\nconst inspectListeners = getEventListeners;");
+  }
+  if (scenario.id === "incremental_build_repair" && scenario.version === 2) {
+    return hiddenVerifierProgram(BUILD_REPAIR_V2_SPEC.hiddenChecks);
   }
   if (spec !== undefined) return hiddenVerifierProgram(spec.hiddenChecks);
   throw new TypeError("Company benchmark verifier is unavailable");
