@@ -107,6 +107,8 @@ generated-file, lint, type, build, package, and frozen-evidence checks.
 After adding bounded slot-level links for interrupted captures, the focused
 artifact/execution suite passed 32 tests and lint/types passed again. Captured
 snapshots remain discoverable even without a final team-state record.
+The fresh installed-package agent smoke also passed, including discovery of
+the corrected scenario version through the installed CLI.
 
 ## Remaining limits
 
