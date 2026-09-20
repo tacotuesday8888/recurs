@@ -83,7 +83,7 @@
   "devDependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
     "@eslint/js": "10.0.1",
-    "@openai/codex": "0.145.0",
+    "@openai/codex": "0.154.0",
     "@types/node": "22.20.2",
     "@types/ws": "8.18.1",
     "@xterm/headless": "6.0.0",
@@ -98,7 +98,7 @@
   "peerDependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
     "@github/copilot-sdk": "1.0.8",
-    "@openai/codex": "0.145.0"
+    "@openai/codex": "0.154.0"
   },
   "peerDependenciesMeta": {
     "@agentclientprotocol/codex-acp": {
