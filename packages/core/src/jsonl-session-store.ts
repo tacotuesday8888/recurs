@@ -730,22 +730,78 @@ export class JsonlSessionStore {
     }
   }
 
-  /** Read-only inventory: a damaged unrelated log must not hide healthy sessions. */
-  async scanReadOnly(): Promise<{
+  async #sessionIds(): Promise<string[]> {
+    try {
+      return (await readdir(this.directory))
+        .filter((file) => file.endsWith(".jsonl"))
+        .sort()
+        .map((file) => file.slice(0, -".jsonl".length));
+    } catch (error) {
+      if (isObject(error) && error.code === "ENOENT") return [];
+      throw error;
+    }
+  }
+
+  /**
+   * The immutable first record of each session, read without the rest of its
+   * log. Parent links never change after creation, so this is enough to find a
+   * conversation's execution tree before validating only those logs in full.
+   * A log still being created, with no complete first record, is omitted.
+   */
+  async scanCreationReadOnly(): Promise<{
+    sessions: { id: string; parentSessionId: string | null }[];
+    unavailableSessionIds: string[];
+  }> {
+    const sessions: { id: string; parentSessionId: string | null }[] = [];
+    const unavailableSessionIds: string[] = [];
+    for (const id of await this.#sessionIds()) {
+      try {
+        const first = await this.#readCreationRecord(id);
+        if (first === undefined) continue;
+        if (first.type !== "session_created") {
+          throw new SessionStoreError("corrupt_log", `Session ${id} does not begin with session_created`);
+        }
+        sessions.push({ id, parentSessionId: first.version === 2 ? first.agent?.parentSessionId ?? null : null });
+      } catch (error) {
+        if (!(error instanceof SessionStoreError)) throw error;
+        unavailableSessionIds.push(id);
+      }
+    }
+    return { sessions, unavailableSessionIds };
+  }
+
+  async #readCreationRecord(sessionId: string): Promise<AnySessionRecord | undefined> {
+    const fragments: Uint8Array[] = [];
+    try {
+      // Creation records are usually a few KiB; a fork snapshot takes more reads.
+      for await (const chunk of createReadStream(this.#file(sessionId), { highWaterMark: 16 * 1024 })) {
+        const end = chunk.indexOf(0x0a);
+        if (end === -1) {
+          fragments.push(chunk);
+          continue;
+        }
+        const bytes = fragments.length === 0 ? chunk.subarray(0, end) : Buffer.concat([...fragments, chunk.subarray(0, end)]);
+        // A file-leading BOM is ignored, matching whole-file decoding.
+        return this.#parseRecord(sessionId, decodeUtf8(bytes, sessionId), 0, undefined);
+      }
+    } catch (error) {
+      if (isObject(error) && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+    return undefined;
+  }
+
+  /**
+   * Read-only inventory: a damaged unrelated log must not hide healthy sessions.
+   * With `sessionIds`, only those logs are read.
+   */
+  async scanReadOnly(sessionIds?: readonly string[]): Promise<{
     sessions: { state: SessionState; updatedAt: string }[];
     unavailableSessionIds: string[];
   }> {
-    let files: string[];
-    try {
-      files = (await readdir(this.directory)).filter((file) => file.endsWith(".jsonl")).sort();
-    } catch (error) {
-      if (isObject(error) && error.code === "ENOENT") return { sessions: [], unavailableSessionIds: [] };
-      throw error;
-    }
     const sessions: { state: SessionState; updatedAt: string }[] = [];
     const unavailableSessionIds: string[] = [];
-    for (const file of files) {
-      const id = file.slice(0, -".jsonl".length);
+    for (const id of sessionIds ?? await this.#sessionIds()) {
       try {
         const loaded = await this.loadReadOnly(id);
         const state = this.#restoreState(id, loaded);
