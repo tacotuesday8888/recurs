@@ -1246,6 +1246,7 @@ export class RecursInteractiveShell {
   #frame = 0;
   readonly #animate: boolean;
   readonly #activity = new TerminalActivity();
+  #activeTui: TUI | null = null;
 
   readonly events: EventSink = {
     emit: async (event) => {
@@ -1399,6 +1400,7 @@ export class RecursInteractiveShell {
     });
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
+    this.#activeTui = tui;
     tui.requestRender(true);
     const animation = !this.#animate ? undefined : setInterval(() => {
       if (external) return;
@@ -1412,8 +1414,18 @@ export class RecursInteractiveShell {
       clearInterval(animation);
       signal?.removeEventListener("abort", onExternalAbort);
       removeCancellationListener();
+      if (this.#activeTui === tui) this.#activeTui = null;
       tui.stop();
     }
+  }
+
+  /** Stop the active interface so an exit on a signal leaves the terminal usable. */
+  restoreTerminal(): void {
+    const tui = this.#activeTui;
+    this.#activeTui = null;
+    if (tui === null) return;
+    this.#terminal.write("\u001b[?1000l\u001b[?1006l");
+    tui.stop();
   }
 
   async start(
@@ -2000,6 +2012,7 @@ export class RecursInteractiveShell {
     state.onChange(() => tui.requestRender());
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
+    this.#activeTui = tui;
     tui.requestRender(true);
     const animation = !this.#animate ? undefined : setInterval(() => {
       this.#frame += 1;
@@ -2020,6 +2033,7 @@ export class RecursInteractiveShell {
       runtime.setSelectionHandler?.(null);
       state.onChange(null);
       chat.cancelQuestions();
+      if (this.#activeTui === tui) this.#activeTui = null;
       this.#terminal.write("\u001b[?1000l\u001b[?1006l");
       tui.stop();
       runtime.cancel();

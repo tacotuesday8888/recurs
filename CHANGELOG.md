@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Stop background commands when Recurs is closed by a signal. Closing the
+  terminal window, `SIGTERM`, and Ctrl+C during `recurs run` previously exited
+  at once and left commands started by the agent running; `SIGTERM` also left
+  the full-screen terminal in raw, mouse-reporting mode. Recurs now cleans up,
+  restores the terminal, and exits with status 129, 143, or 130.
 - Stream and validate session-history listings to reduce memory use while
   preserving corruption detection and interrupted-write recovery.
 - Strengthen the incremental-build benchmark with a versioned ownership check;
