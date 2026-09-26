@@ -7,12 +7,12 @@ import { highlightTerminalCode } from "./terminal-code.js";
 import { TerminalDiffViewer } from "./terminal-diff.js";
 import { TerminalActivity, type ActivityTarget } from "./terminal-activity.js";
 import { renderTerminalOpening } from "./terminal-opening.js";
+import { TranscriptBuffer, TranscriptView } from "./terminal-transcript.js";
 import {
   CombinedAutocompleteProvider,
   Container,
   type Editor,
   Key,
-  Markdown,
   ProcessTerminal,
   SelectList,
   Text,
@@ -76,6 +76,8 @@ import {
   type TerminalCompanyNodeView,
   type TerminalAgentView,
 } from "./terminal-ui-state.js";
+
+export { TranscriptBuffer, collapseTerminalCode } from "./terminal-transcript.js";
 
 export type InteractiveTerminal = Terminal;
 
@@ -614,28 +616,6 @@ function editorTheme(colorEnabled: boolean, theme?: TerminalTheme): EditorTheme 
   };
 }
 
-export class TranscriptBuffer {
-  static readonly maximumCharacters = 256 * 1024;
-  #text = "";
-  #listener: (() => void) | null = null;
-
-  onChange(listener: (() => void) | null): void { this.#listener = listener; }
-
-  append(value: string): void {
-    this.#text += sanitizeTerminalText(value);
-    if (this.#text.length > TranscriptBuffer.maximumCharacters) {
-      this.#text = `… earlier output omitted …\n${this.#text.slice(
-        this.#text.length - TranscriptBuffer.maximumCharacters,
-      )}`;
-    }
-    this.#listener?.();
-  }
-
-  clear(): void { this.#text = ""; this.#listener?.(); }
-
-  text(): string { return this.#text.trimEnd(); }
-}
-
 class OnboardingChoiceList implements Component {
   readonly #list: SelectList;
   readonly #choices: readonly InteractiveOnboardingChoice[];
@@ -912,7 +892,8 @@ function renderAttachedAgentHeader(
 export class ChatComponent extends Container {
   readonly editor: Editor;
   readonly #header: Text;
-  readonly #transcript: Markdown;
+  readonly #transcript: TranscriptView;
+  readonly #buffer: TranscriptBuffer;
   readonly #question = new Text();
   readonly #footer: Text;
   #empty = true;
@@ -923,7 +904,8 @@ export class ChatComponent extends Container {
   readonly #updateHeader: () => void;
   #detailsExpanded = false;
   #rawTranscript = "";
-  #visibleTranscript = "";
+  // Streamed chunks only mark the transcript; rendering reads it once per frame.
+  #transcriptDirty = true;
   #activityTop = 0;
   #activityHeight = 0;
   #previousTranscriptRows = 0;
@@ -948,7 +930,8 @@ export class ChatComponent extends Container {
     const accent = theme?.accent ?? ansi("96", colorEnabled);
     const muted = theme?.muted ?? ansi("2", colorEnabled);
     const strong = theme?.strong ?? ansi("1", colorEnabled);
-    this.#transcript = new Markdown("", 1, 0, {
+    this.#buffer = buffer;
+    this.#transcript = new TranscriptView(1, {
       heading: (text) => strong(accent(text)), link: accent, linkUrl: muted, code: theme?.code ?? accent,
       codeBlock: theme?.code ?? ((text) => text), codeBlockBorder: muted,
       highlightCode: (code, language) => language !== "diff" && language !== "patch" && theme !== undefined
@@ -1015,13 +998,8 @@ export class ChatComponent extends Container {
       1,
       0,
     );
-    this.#empty = buffer.text().trim().length === 0;
-    this.#rawTranscript = buffer.text();
-    this.#updateTranscript();
     buffer.onChange(() => {
-      this.#empty = buffer.text().trim().length === 0;
-      this.#rawTranscript = buffer.text();
-    this.#updateTranscript();
+      this.#transcriptDirty = true;
       tui.requestRender();
     });
     this.addChild(this.#header);
@@ -1033,6 +1011,7 @@ export class ChatComponent extends Container {
 
   override render(width: number): string[] {
     this.#updateHeader();
+    this.#syncTranscript();
     this.#updateTranscript();
     this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
       ? "Enter send · Ctrl+O details · Esc home"
@@ -1082,22 +1061,34 @@ export class ChatComponent extends Container {
     return local >= 0 && local < this.#activityHeight ? this.presentation?.activity.targetAt(local, column) : undefined;
   }
 
+  #syncTranscript(): void {
+    if (!this.#transcriptDirty) return;
+    this.#transcriptDirty = false;
+    this.#rawTranscript = this.#buffer.text();
+    this.#empty = this.#rawTranscript.trim().length === 0;
+  }
+
   #updateTranscript(): void {
-    const text = this.#detailsExpanded
-      ? [this.#rawTranscript, this.presentation?.activity.detailsMarkdown() ?? ""].filter(Boolean).join("\n\n")
-      : collapseTerminalCode(this.#rawTranscript);
-    if (text !== this.#visibleTranscript) { this.#visibleTranscript = text; this.#transcript.setText(text); }
+    this.#transcript.update(
+      this.#rawTranscript,
+      this.#detailsExpanded,
+      this.#detailsExpanded ? this.presentation?.activity.detailsMarkdown() ?? "" : "",
+    );
   }
 
   toggleDetails(): void {
     this.#detailsExpanded = !this.#detailsExpanded;
+    this.#syncTranscript();
     this.#updateTranscript();
     this.#scrollOffset = 0;
   }
 
   get hasQuestion(): boolean { return this.#pending !== null; }
 
-  get showsOpening(): boolean { return this.#empty && !this.#submitted && this.#pending === null; }
+  get showsOpening(): boolean {
+    this.#syncTranscript();
+    return this.#empty && !this.#submitted && this.#pending === null;
+  }
 
   refreshAppearance(): void { this.#transcript.invalidate(); this.editor.invalidate(); }
 
@@ -2037,17 +2028,3 @@ export function createRecursInteractiveShell(
   return new RecursInteractiveShell(options);
 }
 
-/** Collapse complete and streaming fenced code without changing the stored transcript. */
-export function collapseTerminalCode(text: string): string {
-  let fence: string | null = null;
-  return text.split("\n").flatMap((line) => {
-    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
-    if (fence === null) {
-      if (!opening) return [line];
-      fence = opening[1]!;
-      return ["▸ Code · Ctrl+O expand"];
-    }
-    if (new RegExp(`^ {0,3}${fence[0]}{${fence.length},}\\s*$`, "u").test(line)) fence = null;
-    return [];
-  }).join("\n");
-}
