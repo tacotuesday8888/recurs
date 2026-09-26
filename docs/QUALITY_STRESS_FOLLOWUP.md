@@ -92,6 +92,8 @@ ten-turn blocks were both about 469 MiB, but that short plateau cannot establish
 a memory bound or distinguish retained data from allocator/GC behavior. Active
 session memory remains a profiling target; the history-listing improvement must
 not be represented as a reduction in this active workload.
+[Active-session memory](ACTIVE_SESSION_MEMORY.md) later traced this growth to
+streaming garbage rather than retained data and records the fix.
 
 Browser checks on the current website covered npm/Bun/Homebrew selection and
 copied commands, all twelve benchmark targets through keyboard activation,

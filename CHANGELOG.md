@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Stop redoing whole-conversation work for every streamed chunk and frame:
+  turns render separately and settled turns reuse their layout. Streaming turns
+  are about four times faster in a 120-turn local workload, with a lower peak
+  memory footprint. Trimming old output no longer turns a code block's closing
+  fence into an opening one.
 - Stream and validate session-history listings to reduce memory use while
   preserving corruption detection and interrupted-write recovery.
 - Strengthen the incremental-build benchmark with a versioned ownership check;
