@@ -1,14 +1,16 @@
+// C0 controls except tab and newline, DEL, and C1 controls. Astral characters
+// and lone surrogates are kept, matching code-point iteration.
+// eslint-disable-next-line no-control-regex -- removing controls is the purpose.
+const multilineControls = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/gu;
+// eslint-disable-next-line no-control-regex -- removing controls is the purpose.
+const singleLineControls = /[\u0000-\u001f\u007f-\u009f]/gu;
+
 export function sanitizeTerminalText(
   text: string,
   options: { readonly multiline?: boolean } = {},
 ): string {
-  const multiline = options.multiline ?? true;
-  return [...text].flatMap((character) => {
-    if (character === "\n") return multiline ? [character] : [];
-    if (character === "\t") return multiline ? ["  "] : [];
-    const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint > 0x1f && (codePoint < 0x7f || codePoint > 0x9f)
-      ? [character]
-      : [];
-  }).join("");
+  if (options.multiline ?? true) {
+    return text.replace(multilineControls, "").replaceAll("\t", "  ");
+  }
+  return text.replace(singleLineControls, "");
 }
