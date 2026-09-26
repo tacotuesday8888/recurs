@@ -71,6 +71,7 @@
     "website:check": "npm --prefix website run check",
     "performance:measure": "node scripts/measure-cli-resources.mjs",
     "performance:history": "node scripts/measure-session-history.mjs",
+    "performance:active-session": "node scripts/measure-active-session.mjs",
     "package:stress-terminal": "node scripts/smoke-terminal.mjs --stress"
   },
   "dependencies": {
