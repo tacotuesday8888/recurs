@@ -82,9 +82,39 @@ export class AgentExecutionService {
     };
   }
 
+  /**
+   * Sessions whose recorded parent chain reaches the root, found from their
+   * immutable creation records so unrelated history is never read in full.
+   */
+  async #tree(rootSessionId: string): Promise<{ sessionIds: string[]; unavailableSessionIds: string[] }> {
+    const created = await this.sessions.scanCreationReadOnly();
+    const parents = new Map(created.sessions.map((session) => [session.id, session.parentSessionId]));
+    const belongs = new Map<string, boolean>([[rootSessionId, parents.has(rootSessionId)]]);
+    const reachesRoot = (id: string): boolean => {
+      const chain: string[] = [];
+      let current: string | null | undefined = id;
+      while (current !== null && current !== undefined && !belongs.has(current) && !chain.includes(current)) {
+        chain.push(current);
+        current = parents.get(current);
+      }
+      const result = current !== null && current !== undefined && belongs.get(current) === true;
+      for (const member of chain) belongs.set(member, result);
+      return result;
+    };
+    return {
+      sessionIds: created.sessions.map((session) => session.id).filter(reachesRoot),
+      unavailableSessionIds: created.unavailableSessionIds,
+    };
+  }
+
   async list(rootSessionId: string): Promise<AgentExecution[]> {
     const states = new Map<string, { state: PinnedSessionState; updatedAt: string }>();
-    const scanned = await this.sessions.scanReadOnly();
+    const tree = await this.#tree(rootSessionId);
+    const loaded = await this.sessions.scanReadOnly(tree.sessionIds);
+    const scanned = {
+      sessions: loaded.sessions,
+      unavailableSessionIds: [...tree.unavailableSessionIds, ...loaded.unavailableSessionIds],
+    };
     for (const entry of scanned.sessions) {
       if (isPinnedSessionState(entry.state)) states.set(entry.state.id, { state: entry.state, updatedAt: entry.updatedAt });
     }

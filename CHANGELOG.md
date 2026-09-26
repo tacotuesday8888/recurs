@@ -4,6 +4,12 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Opening a chat, inspecting its executions, and cancelling a child no longer
+  read every other chat's history in full: the execution list identifies the
+  conversation's sessions from their first records and validates only those.
+  With 30 unrelated 5.9 MB chats in a workspace, listing fell from about 1.1 s
+  to 8 ms locally. An unrelated log damaged after its first record no longer
+  triggers an incomplete-history notice.
 - Stream and validate session-history listings to reduce memory use while
   preserving corruption detection and interrupted-write recovery.
 - Strengthen the incremental-build benchmark with a versioned ownership check;
