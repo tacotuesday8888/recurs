@@ -321,10 +321,10 @@ try {
   assert.equal(ui.exit(), 0);
   ui.terminal.dispose();
   const resumed = await launch([]);
-  await resumed.wait((screen) => screen.includes("Current chat"), "session launcher");
+  await resumed.wait((screen) => screen.includes("Review parser.ts"), "session launcher");
   for (const [columns, rows] of [[32, 8], [80, 24], [40, 10], [100, 30]]) {
     resumed.process.resize(columns, rows); resumed.terminal.resize(columns, rows);
-    await resumed.wait((screen) => screen.includes("Current chat"), `home selection at ${columns}x${rows}`);
+    await resumed.wait((screen) => screen.includes("Review parser.ts"), `home selection at ${columns}x${rows}`);
   }
   resumed.process.write("\r");
   await resumed.wait((screen) => screen.includes("Inspection line 64"), "durable transcript reopening");
@@ -332,7 +332,7 @@ try {
   await resumed.wait(() => resumed.exit() !== undefined, "resumed exit");
   resumed.terminal.dispose();
   const colorful = await launch([], { NO_COLOR: undefined, RECURS_REDUCED_MOTION: "1" });
-  await colorful.wait((screen) => screen.includes("Current chat"), "colored launcher");
+  await colorful.wait((screen) => screen.includes("Review parser.ts"), "colored launcher");
   colorful.process.write("\r");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
   assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0xffffff);
