@@ -9,6 +9,7 @@ import type { CompanyBenchmarkCampaignV1, CompanyBenchmarkTrialV1, ProviderUsage
 import {
   getCompanyBenchmarkScenario, initializeCompanyBenchmarkWorkspace,
   CompanyBenchmarkAllowanceError,
+  companyBenchmarkDeadlineExceeded,
   projectCompanyBenchmarkTrial, verifyCompanyBenchmarkWorkspace,
   type CompanyBenchmarkExecutionAdapter, type CompanyBenchmarkExecutionInput,
   type CompanyBenchmarkWorkspaceVerification,
@@ -128,6 +129,10 @@ export async function preflightCodexControlCampaign(
   }
 }
 
+function cancelledCode(signal: AbortSignal): string {
+  return companyBenchmarkDeadlineExceeded(signal) ? "execution_deadline_exceeded" : "execution_cancelled";
+}
+
 export class CodexControlBenchmarkAdapter implements CompanyBenchmarkExecutionAdapter {
   constructor(private readonly options: {
     readonly sourceDataDirectory: string;
@@ -177,13 +182,20 @@ export class CodexControlBenchmarkAdapter implements CompanyBenchmarkExecutionAd
       const parsed = parseCodexControlOutput(result.stdout);
       usage = parsed.usage;
       executionStatus = result.status === "cancelled" ? "cancelled" : result.status === "completed" && parsed.completed ? "completed" : "failed";
-      failureCode = executionStatus === "completed" ? null : result.status === "output_limit" ? "codex_control_output_limit" : executionStatus === "cancelled" ? "execution_cancelled" : "codex_control_execution_failed";
+      if (companyBenchmarkDeadlineExceeded(signal)) executionStatus = "cancelled";
+      failureCode = executionStatus === "completed" ? null : result.status === "output_limit" ? "codex_control_output_limit" : executionStatus === "cancelled" ? cancelledCode(signal) : "codex_control_execution_failed";
       input.allowance.afterProviderResponse(reservation, null);
       reservation = null;
-      verification = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: workspace, baseRevision: prepared.baseRevision, signal });
+      // A slot deadline stops execution, not the check of what it left behind.
+      const verificationSignal = input.verificationSignal ?? signal;
+      try {
+        verification = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: workspace, baseRevision: prepared.baseRevision, signal: verificationSignal });
+      } catch (error) {
+        if (!verificationSignal.aborted) throw error;
+      }
     } catch (error) {
       if (error instanceof CompanyBenchmarkAllowanceError) throw error;
-      if (signal.aborted) { executionStatus = "cancelled"; failureCode = "execution_cancelled"; }
+      if (signal.aborted) { executionStatus = "cancelled"; failureCode = cancelledCode(signal); }
     } finally {
       if (reservation !== null) input.allowance.afterProviderResponse(reservation, null);
       if (requestStartedAtMs !== null && result === null) requestCompletedAtMs = Date.now();
