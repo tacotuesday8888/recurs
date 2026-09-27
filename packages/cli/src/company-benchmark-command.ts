@@ -20,6 +20,7 @@ import {
 } from "@recurs/contracts";
 import {
   COMPANY_BENCHMARK_SCENARIOS,
+  CompanyBenchmarkDeadlineError,
   CompanyBenchmarkRunner,
   FileCompanyBenchmarkCampaignStore,
   FileCompanyBenchmarkSlotReservationStore,
@@ -530,11 +531,16 @@ export async function runCompanyBenchmarkCommand(
           message: `Running ${input.slot.armId} repetition ${input.slot.repetition}.`,
         });
         const deadline = new AbortController();
-        const timer = control === null ? undefined : setTimeout(() => deadline.abort(), 300_000);
+        const timer = control === null ? undefined : setTimeout(() => deadline.abort(new CompanyBenchmarkDeadlineError(300_000)), 300_000);
         timer?.unref();
         let trial: CompanyBenchmarkTrialV1;
         try {
-          const bounded = control === null ? input : { ...input, signal: input.signal === undefined ? deadline.signal : AbortSignal.any([input.signal, deadline.signal]) };
+          // The deadline stops execution; only the campaign signal stops verification.
+          const bounded = control === null ? input : {
+            ...input,
+            signal: input.signal === undefined ? deadline.signal : AbortSignal.any([input.signal, deadline.signal]),
+            ...(input.signal === undefined ? {} : { verificationSignal: input.signal }),
+          };
           trial = await (control !== null && input.slot.armId === campaign.baseline.id && dependencies.createAdapter === undefined ? control : adapter).execute(bounded);
         } finally { if (timer !== undefined) clearTimeout(timer); }
         if (control !== null && (trial.failures.some(failure => failure.stage === "setup") ||

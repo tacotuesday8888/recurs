@@ -28,9 +28,17 @@ export interface AgentExecution {
   readonly capabilities: { readonly cancel: boolean; readonly send: false; readonly reason: string };
 }
 
+export type DurableTranscriptEntry =
+  | { readonly kind: "prompt"; readonly text: string }
+  | { readonly kind: "response"; readonly text: string }
+  | { readonly kind: "tool"; readonly name: string; readonly failed: boolean }
+  | { readonly kind: "outcome"; readonly status: "cancelled" | "failed" | "interrupted"; readonly text: string };
+
 export interface AgentExecutionDetail {
   readonly execution: AgentExecution;
   readonly messages: readonly ModelMessage[];
+  /** The conversation as a chat presents it; `messages` keeps full tool results. */
+  readonly transcript?: readonly DurableTranscriptEntry[];
   readonly transcriptNotice: string | null;
 }
 
@@ -147,6 +155,7 @@ export class AgentExecutionService {
     return {
       execution,
       messages: durableSessionMessages(records),
+      transcript: durableSessionTranscript(records),
       transcriptNotice: state.backend.pin.kind === "agent_runtime"
         ? "This vendor runtime persists prompts and final responses. Its internal conversation and tool trace are not available here."
         : "Completed messages and tool results are durable. An in-flight partial model response is not yet recorded.",
@@ -185,4 +194,53 @@ export function durableSessionMessages(records: readonly AnySessionRecord[]): Mo
     }
   }
   return messages;
+}
+
+/**
+ * The durable conversation as the chat shows it: prompts, replies, the tools
+ * each turn used, and turns that did not complete. Tool output is omitted.
+ */
+export function durableSessionTranscript(records: readonly AnySessionRecord[]): DurableTranscriptEntry[] {
+  const entries: DurableTranscriptEntry[] = [];
+  const toolNames = new Map<string, string>();
+  const message = (item: ModelMessage): void => {
+    if (item.role === "user") entries.push({ kind: "prompt", text: item.content });
+    else if (item.role === "assistant" && item.content.trim() !== "") entries.push({ kind: "response", text: item.content });
+    for (const call of item.role === "assistant" ? item.toolCalls ?? [] : []) toolNames.set(call.id, call.name);
+  };
+  for (const record of records) {
+    if (record.version !== 2) continue;
+    switch (record.type) {
+      case "session_created":
+        for (const item of record.fork?.messages ?? []) message(item);
+        break;
+      case "turn_started":
+      case "turn_steered":
+        entries.push({ kind: "prompt", text: record.prompt });
+        break;
+      case "model_completed":
+        message(record.message);
+        break;
+      case "runtime_completed":
+        if (record.result.finalText.trim() !== "") entries.push({ kind: "response", text: record.result.finalText });
+        break;
+      case "tool_started":
+        toolNames.set(record.call.id, record.call.name);
+        break;
+      case "tool_completed":
+      case "tool_failed":
+        entries.push({ kind: "tool", name: toolNames.get(record.callId) ?? "tool", failed: record.type === "tool_failed" });
+        break;
+      case "turn_cancelled":
+        entries.push({ kind: "outcome", status: "cancelled", text: record.reason });
+        break;
+      case "turn_failed":
+        entries.push({ kind: "outcome", status: "failed", text: record.error.safeMessage });
+        break;
+      case "turn_interrupted":
+        entries.push({ kind: "outcome", status: "interrupted", text: record.reason });
+        break;
+    }
+  }
+  return entries;
 }

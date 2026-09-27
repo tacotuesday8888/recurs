@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { FileConnectionRegistry, type DelegatedConnectionRecord } from "@recurs/app";
+import { CompanyBenchmarkDeadlineError } from "@recurs/core";
 import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -89,5 +90,19 @@ describe("official Codex benchmark process", () => {
     const retained = (await readdir(root)).find(name => name.startsWith("trial-"))!;
     expect(await readFile(path.join(root, retained, "stderr.private.txt"), "utf8")).toBe("private trace");
     await expect(readdir(workspace!)).rejects.toThrow();
+
+    // A slot stopped at its deadline is timed out, not completed, but the
+    // files it left are still graded instead of being recorded as failed.
+    const deadline = new AbortController();
+    processRunner.mockImplementationOnce(async (input) => {
+      for (const [filePath, content] of Object.entries(PRODUCT_TASK_REFERENCES.release_window_regressions!)) await writeFile(path.join(input.workspace, filePath), content);
+      deadline.abort(new CompanyBenchmarkDeadlineError(300_000));
+      return { status: "cancelled" as const, exitCode: null, stdout: "", stderr: "" };
+    });
+    const timedOut = await adapter.execute({ campaign, slot: campaign.armOrder[0]!, allowance: { requestAllowance: 96, reportedCostAllowanceUsd: 3, beforeProviderRequest, afterProviderResponse },
+      signal: deadline.signal, verificationSignal: new AbortController().signal });
+    expect(timedOut.executionStatus).toBe("cancelled");
+    expect(timedOut.failures).toContainEqual(expect.objectContaining({ stage: "execution", code: "execution_deadline_exceeded" }));
+    expect(timedOut.verification.status).toBe("passed");
   });
 });

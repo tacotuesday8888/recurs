@@ -364,6 +364,7 @@ function workspaceIntegrity(
 
 const RUNTIME_EXECUTION_FAILURE_CODES = new Set([
   "execution_cancelled",
+  "execution_deadline_exceeded",
   "company_goal_interrupted",
   "agent_cancelled",
   "agent_context_overflow",

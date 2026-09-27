@@ -8,10 +8,12 @@ import {
   companyBenchmarkTrialSlotId,
   parseCompanyBenchmarkCampaign,
   type CompanyBenchmarkRouteV1,
+  type CompanyBenchmarkTrialV1,
   type ProviderEvent,
   type ProviderRequest,
 } from "@recurs/contracts";
 import {
+  CompanyBenchmarkDeadlineError,
   CompanyBenchmarkRunner,
   FileCompanyBenchmarkSlotReservationStore,
   FileCompanyBenchmarkSlotSettlementStore,
@@ -583,4 +585,98 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
     expect(summary.correctnessEligibility).toBe("insufficient_evidence");
     expect("winner" in summary).toBe(false);
   }, 90_000);
+});
+
+/** A worker that never answers until its request is aborted. */
+class StallingImplementProvider extends BenchmarkProvider {
+  constructor(
+    blueprint: ReturnType<typeof createCompanyBenchmarkBlueprint>,
+    readonly onStall: () => void,
+  ) { super(blueprint); }
+
+  override async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+    if (JSON.stringify(request.messages).includes("Recurs Implement agent")) {
+      this.onStall();
+      await new Promise<void>((resolve) => {
+        request.signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      request.signal?.throwIfAborted();
+      return;
+    }
+    yield* super.stream(request);
+  }
+}
+
+async function stalledCompanyTrial(abortCampaign: boolean): Promise<CompanyBenchmarkTrialV1> {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "recurs-benchmark-deadline-")));
+  roots.push(root);
+  const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
+  const blueprint = createCompanyBenchmarkBlueprint(scenario);
+  const campaign = parseCompanyBenchmarkCampaign({
+    id: "campaign-deadline", version: 1, createdAt: "2026-07-24T00:00:02.000Z",
+    scenario: { id: scenario.id, version: scenario.version, taskClass: scenario.taskClass, difficulty: scenario.difficulty, fixtureSha256: scenario.fixtureSha256, verifierId: scenario.verifierId, objectiveRevision: scenario.objectiveRevision },
+    harnessRevision: "recurs-alpha", launchProtocolRevision: "company-benchmark-parent-only-v2",
+    operatingModeId: "balanced_v6", operatingModeVersion: 6, permissionMode: "approved_for_me", repetitions: 1,
+    ceilings: { maxTrialSlots: 2, maxRequests: 40, maxReportedCostUsd: 0 },
+    blueprint: { id: blueprint.id, revision: blueprint.revision, sha256: companyBenchmarkBlueprintDigest(blueprint) },
+    baseline: { id: "baseline", kind: "single_agent", configuredRoutes: [route("parent")] },
+    companyArms: [{ id: "company-standard", kind: "company", configuredRoutes: [route("parent"), route("implement"), route("review"), route("repair")] }],
+    armOrder: [
+      { slotId: companyBenchmarkTrialSlotId("baseline", 1), armId: "baseline", repetition: 1 },
+      { slotId: companyBenchmarkTrialSlotId("company-standard", 1), armId: "company-standard", repetition: 1 },
+    ],
+  });
+  const campaignStop = new AbortController();
+  const deadline = new AbortController();
+  const adapter = new RuntimeCompanyBenchmarkAdapter({
+    blueprint,
+    createProvider: () => new StallingImplementProvider(blueprint, () => {
+      if (abortCampaign) campaignStop.abort();
+      else deadline.abort(new CompanyBenchmarkDeadlineError(300_000));
+    }),
+    processRunner: (command, args, options) => runProcess(command, args, { ...options, sandbox: undefined }),
+  });
+  let company: CompanyBenchmarkTrialV1 | undefined;
+  const runner = new CompanyBenchmarkRunner({
+    trials: new FileCompanyBenchmarkTrialStore(path.join(root, "trials")),
+    summaries: new FileCompanyBenchmarkSummaryStore(path.join(root, "summaries")),
+    reservations: new FileCompanyBenchmarkSlotReservationStore(path.join(root, "reservations")),
+    settlements: new FileCompanyBenchmarkSlotSettlementStore(path.join(root, "settlements")),
+    adapter: {
+      // Mirrors the benchmark command: the deadline stops execution only.
+      async execute(input) {
+        if (input.slot.armId !== "company-standard") return await adapter.execute(input);
+        company = await adapter.execute({
+          ...input,
+          signal: AbortSignal.any([campaignStop.signal, deadline.signal]),
+          verificationSignal: campaignStop.signal,
+        });
+        return company;
+      },
+    },
+  });
+  await runner.run(campaign).catch(() => undefined);
+  if (company === undefined) throw new Error("The company slot did not return a trial");
+  return company;
+}
+
+describe("company benchmark deadlines", () => {
+  it("verifies the candidate a slot deadline stopped and records the deadline", async () => {
+    const trial = await stalledCompanyTrial(false);
+    expect(trial.executionStatus).toBe("cancelled");
+    expect(trial.failures).toContainEqual(expect.objectContaining({ stage: "execution", code: "execution_deadline_exceeded" }));
+    // Previously the aborted signal skipped every check and recorded only a
+    // failed workspace inventory. Now the stopped candidate is really checked.
+    expect(trial.verification.checks).toContainEqual({ id: "workspace_inventory", status: "passed" });
+    expect(trial.verification.checks.map((check) => check.id)).toContain("hidden_alias_normalization");
+    expect(trial.verification.status).toBe("failed");
+  }, 30_000);
+
+  it("records verification as not run, not failed, when the campaign itself is cancelled", async () => {
+    const trial = await stalledCompanyTrial(true);
+    expect(trial.executionStatus).toBe("cancelled");
+    expect(trial.failures).toContainEqual(expect.objectContaining({ stage: "execution", code: "execution_cancelled" }));
+    expect(trial.verification).toEqual({ status: "not_run", workspaceIntegrity: "not_run", checks: [] });
+    expect(trial.failures.some((failure) => failure.code === "scenario_verification_failed")).toBe(false);
+  }, 30_000);
 });

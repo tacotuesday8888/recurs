@@ -2,7 +2,7 @@
   <img src="docs/assets/recurs-wordmark.svg" alt="Recurs" width="420">
 </p>
 
-<p align="center">A terminal coding agent with configurable agent teams.</p>
+<p align="center"><b>Coding agents in your terminal.</b><br>Choose the models, bound the team, and review every change.</p>
 
 <p align="center">
   <a href="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml"><img src="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -62,6 +62,17 @@ concurrency, and permissions. Follow each running agent and inspect its work.
 
 **Ctrl+G** opens the team. **Ctrl+T** opens executions. **Enter** inspects an agent.
 [Team setup](docs/AUTO_MODEL_TEAMS.md)
+
+## Built to stay responsive
+
+| Workload (same machine, before → after) | Result |
+| --- | --- |
+| Streaming turn, median over 120 turns | 501–521 ms → **124 ms** |
+| Loading a chat's agent history beside 30 other chats | 1.1 s → **8 ms** |
+| Peak physical memory over 120 turns | ~400 MiB → **~270 MiB** |
+
+Deterministic local workloads, not a model-quality benchmark.
+[Method and raw measurements](docs/ACTIVE_SESSION_MEMORY.md)
 
 ## Reference
 

@@ -1,0 +1,439 @@
+{
+  "protocol": "benchmarks/cli-resources/PROTOCOL.md",
+  "protocolSha256": "1847778e84f875d16a6c38e8bccbce4d6c7964e9de59e675646e6514d3f2f65d",
+  "measuredAt": "2026-09-27T15:17:11.682Z",
+  "host": "darwin-arm64",
+  "node": "v26.9.0",
+  "versions": {
+    "claude-code": "2.1.283 (Claude Code)",
+    "codex": "codex-cli 0.145.0",
+    "recurs": "recurs 0.1.0-alpha.11"
+  },
+  "workloads": {
+    "startup": "--version",
+    "short": "one-sentence reply",
+    "long": "6000 lines, 340900 bytes in 90-character deltas"
+  },
+  "samplesPerWorkload": 5,
+  "summary": {
+    "claude-code": {
+      "startup": {
+        "validSamples": 5,
+        "medianWallMs": 15,
+        "medianPeakRssBytes": 25690112
+      },
+      "short": {
+        "validSamples": 5,
+        "medianWallMs": 344,
+        "medianPeakRssBytes": 235339776
+      },
+      "long": {
+        "validSamples": 5,
+        "medianWallMs": 495,
+        "medianPeakRssBytes": 441057280
+      }
+    },
+    "codex": {
+      "startup": {
+        "validSamples": 5,
+        "medianWallMs": 82,
+        "medianPeakRssBytes": 56492032
+      },
+      "short": {
+        "validSamples": 5,
+        "medianWallMs": 328,
+        "medianPeakRssBytes": 91815936
+      },
+      "long": {
+        "validSamples": 5,
+        "medianWallMs": 432,
+        "medianPeakRssBytes": 112656384
+      }
+    },
+    "recurs": {
+      "startup": {
+        "validSamples": 5,
+        "medianWallMs": 205,
+        "medianPeakRssBytes": 127369216
+      },
+      "short": {
+        "validSamples": 5,
+        "medianWallMs": 316,
+        "medianPeakRssBytes": 132448256
+      },
+      "long": {
+        "validSamples": 5,
+        "medianWallMs": 369,
+        "medianPeakRssBytes": 173654016
+      }
+    }
+  },
+  "results": {
+    "claude-code": {
+      "startup": {
+        "warmup": {
+          "wallMs": 14,
+          "peakRssBytes": 25624576,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 15,
+            "peakRssBytes": 25542656,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 15,
+            "peakRssBytes": 25690112,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 14,
+            "peakRssBytes": 25722880,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 14,
+            "peakRssBytes": 25624576,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 21,
+            "peakRssBytes": 25903104,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "short": {
+        "warmup": {
+          "wallMs": 432,
+          "peakRssBytes": 241123328,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 344,
+            "peakRssBytes": 235651072,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 394,
+            "peakRssBytes": 233226240,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 336,
+            "peakRssBytes": 239255552,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 349,
+            "peakRssBytes": 235339776,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 339,
+            "peakRssBytes": 235323392,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "long": {
+        "warmup": {
+          "wallMs": 490,
+          "peakRssBytes": 449069056,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 519,
+            "peakRssBytes": 435568640,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 505,
+            "peakRssBytes": 441057280,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 479,
+            "peakRssBytes": 505905152,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 495,
+            "peakRssBytes": 448823296,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 465,
+            "peakRssBytes": 440549376,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      }
+    },
+    "codex": {
+      "startup": {
+        "warmup": {
+          "wallMs": 81,
+          "peakRssBytes": 56016896,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 82,
+            "peakRssBytes": 56360960,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 80,
+            "peakRssBytes": 56492032,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 78,
+            "peakRssBytes": 56442880,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 87,
+            "peakRssBytes": 56836096,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 85,
+            "peakRssBytes": 56999936,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "short": {
+        "warmup": {
+          "wallMs": 446,
+          "peakRssBytes": 91766784,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 327,
+            "peakRssBytes": 91668480,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 328,
+            "peakRssBytes": 91815936,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 340,
+            "peakRssBytes": 92520448,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 372,
+            "peakRssBytes": 92520448,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 325,
+            "peakRssBytes": 91652096,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "long": {
+        "warmup": {
+          "wallMs": 440,
+          "peakRssBytes": 108691456,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 443,
+            "peakRssBytes": 112902144,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 436,
+            "peakRssBytes": 112656384,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 401,
+            "peakRssBytes": 106119168,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 432,
+            "peakRssBytes": 112787456,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 401,
+            "peakRssBytes": 105316352,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      }
+    },
+    "recurs": {
+      "startup": {
+        "warmup": {
+          "wallMs": 202,
+          "peakRssBytes": 127893504,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 203,
+            "peakRssBytes": 123879424,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 205,
+            "peakRssBytes": 128745472,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 199,
+            "peakRssBytes": 126287872,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 214,
+            "peakRssBytes": 127369216,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 215,
+            "peakRssBytes": 129794048,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "short": {
+        "warmup": {
+          "wallMs": 313,
+          "peakRssBytes": 130891776,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 323,
+            "peakRssBytes": 132202496,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 341,
+            "peakRssBytes": 131399680,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 308,
+            "peakRssBytes": 132694016,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 299,
+            "peakRssBytes": 132448256,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 316,
+            "peakRssBytes": 133840896,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      },
+      "long": {
+        "warmup": {
+          "wallMs": 390,
+          "peakRssBytes": 167313408,
+          "exitCode": 0,
+          "valid": true
+        },
+        "samples": [
+          {
+            "wallMs": 369,
+            "peakRssBytes": 165871616,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 352,
+            "peakRssBytes": 170229760,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 371,
+            "peakRssBytes": 173654016,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 365,
+            "peakRssBytes": 177324032,
+            "exitCode": 0,
+            "valid": true
+          },
+          {
+            "wallMs": 374,
+            "peakRssBytes": 178520064,
+            "exitCode": 0,
+            "valid": true
+          }
+        ]
+      }
+    }
+  }
+}
