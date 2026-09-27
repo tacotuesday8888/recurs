@@ -146,7 +146,7 @@ describe("terminal execution workflow regressions", () => {
       terminal.input?.("\x07");
       await vi.waitFor(() => expect(terminal.output).toContain("Team"));
       const answer = confirm("Allow a test change?");
-      await vi.waitFor(() => expect(terminal.output).toContain("APPROVAL REQUIRED"));
+      await vi.waitFor(() => expect(terminal.output).toContain("Approval required"));
       terminal.output = "";
       terminal.input?.("\x07"); terminal.input?.("\x14");
       expect(terminal.output).not.toContain("TASKS");

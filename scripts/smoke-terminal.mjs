@@ -279,7 +279,7 @@ try {
   ui.process.write("\u001b[B\r");
   await ui.wait((screen) => screen.includes("Permission mode: Approved for Me"), "permission selection applied");
   ui.process.write("/permissions full\r");
-  await ui.wait((screen) => screen.includes("APPROVAL REQUIRED"), "full access confirmation");
+  await ui.wait((screen) => screen.includes("Approval required"), "full access confirmation");
   ui.process.write("\u001b");
   await ui.wait((screen) => screen.includes("Full Access was not enabled"), "escape denies full access");
   ui.process.write("/permissions ask\r");
@@ -369,10 +369,10 @@ try {
     recordingTimer = setInterval(() => workflowFrames.push(renderColorScreen(colorful, "Coding workflow")), 100);
   }
   colorful.process.write("Handle whitespace and empty entries in comma-separated input.\r");
-  await colorful.wait((screen) => screen.includes("PERMISSION REQUIRED"), "real patch approval");
+  await colorful.wait((screen) => screen.includes("Permission required"), "real patch approval");
   await captureColorScreen(colorful, "permission");
   colorful.process.write("yes\r");
-  await colorful.wait((screen) => screen.includes("PERMISSION REQUIRED") && screen.includes("experimental-strip-types"), "test command approval");
+  await colorful.wait((screen) => screen.includes("Permission required") && screen.includes("experimental-strip-types"), "test command approval");
   colorful.process.write("yes\r");
   await colorful.wait((screen) => screen.includes("file changed") && screen.includes("Parent · ready") && screen.includes("1 changed"), "applied patch activity");
   assert((await readFile(path.join(workspace, "parser.ts"), "utf8")).includes(".filter((entry) => entry.length > 0)"));
@@ -555,7 +555,7 @@ try {
   signalled.process.write("\r");
   await signalled.wait((screen) => screen.includes("/ CHAT"), "chat before termination");
   signalled.process.write("/permissions full\r");
-  await signalled.wait((screen) => screen.includes("APPROVAL REQUIRED"), "full access for a background command");
+  await signalled.wait((screen) => screen.includes("Approval required"), "full access for a background command");
   signalled.process.write("yes\r");
   await signalled.wait((screen) => screen.includes("Permission mode: Full Access"), "full access applied");
   signalled.process.write("Start a background watcher\r");
