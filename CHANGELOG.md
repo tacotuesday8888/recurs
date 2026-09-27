@@ -9,6 +9,11 @@ Notable user-facing changes are recorded here when they ship.
   RECURS label under the chat-home letter. The terminal opening now uses the
   same line as the website and README: "Choose the models. Bound the team.
   Review every change."
+- Record benchmark slots that hit their time limit as
+  `execution_deadline_exceeded` and still grade the files they left. The hidden
+  checks previously ran with the already-cancelled signal and were recorded as a
+  failed workspace inventory without inspecting anything; the Codex control arm
+  recorded the same event as not run, so the two arms were scored differently.
 - Stop background commands when Recurs is closed by a signal. Closing the
   terminal window, `SIGTERM`, and Ctrl+C during `recurs run` previously exited
   at once and left commands started by the agent running; `SIGTERM` also left

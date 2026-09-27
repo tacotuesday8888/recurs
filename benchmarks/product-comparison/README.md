@@ -76,3 +76,15 @@ unknown. Runtime request counts and reservation charges are not comparable
 vendor model-call counts. The scheduler task tests three seeded regressions,
 not general bug discovery. Later cancellation fixes are outside the frozen
 measured executable. No model was rerun during source review or offline replay.
+
+## Later harness finding (September 27, 2026)
+
+The frozen record lists Recurs shipment attempt 2 as completed at 464.9 seconds
+with failed verification and workspace integrity. That verification result is a
+harness artifact, not a property of the candidate: the slot's deadline signal had
+already fired, and the Recurs adapter ran its hidden checks with that cancelled
+signal, which stopped them before inspecting anything and recorded a failed
+workspace inventory. The Codex control arm recorded the same situation as not
+run. This is consistent with the candidate passing offline replay. The attempt
+remains invalid for exceeding the limit, and no frozen outcome is changed. Later
+campaigns grade a timed-out slot's files and record `execution_deadline_exceeded`.
