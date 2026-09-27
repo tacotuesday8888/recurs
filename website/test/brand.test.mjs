@@ -30,8 +30,8 @@ test("built website and generated terminal colors share the canonical brand pale
 });
 
 test("primary website text and selection retain at least 4.5:1 contrast", () => {
-  for (const background of [resolve("--canvas"), resolve("--paper")]) {
-    for (const role of ["ink", "muted", "accent"]) {
+  for (const background of [resolve("--canvas"), resolve("--surface"), resolve("--raised")]) {
+    for (const role of ["ink", "muted", "accent", "faint"]) {
       const ratio = (luminance(resolve(`--${role}`)) + .05) / (luminance(background) + .05);
       assert.ok(ratio >= 4.5, `${role} on ${background}: ${ratio}`);
     }

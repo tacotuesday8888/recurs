@@ -61,15 +61,17 @@ const { chartMetrics, chartCampaigns, chartTaskName, renderChart } = await impor
 const { terminalLetterSvg } = await import(new URL("../.build/letter.js", import.meta.url));
 const { taskResults } = await import(new URL("../.build/results.js", import.meta.url));
 const { parseProductComparison, renderProductComparison } = await import(new URL("../.build/product-comparison.js", import.meta.url));
-const productComparison = await buildProductComparison({
+// The audited comparison is always validated, but it appears on the homepage
+// only when RECURS_SHOW_COMPARISON=1. Its records remain in the repository.
+const validatedComparison = await buildProductComparison({
   dataPath: join(repository, "benchmarks/product-comparison/website-results.json"),
   reviewFindingPath: join(repository, "benchmarks/product-comparison/review-finding.json"),
   outputPath: output,
   parse: parseProductComparison,
   render: renderProductComparison,
 });
+const productComparison = process.env.RECURS_SHOW_COMPARISON === "1" ? validatedComparison : "";
 const replacements = {
-  BENCHMARKS_TARGET: productComparison ? "#product-comparison" : "./task-fit-results.md",
   PRODUCT_COMPARISON: productComparison,
   HISTORICAL_EVIDENCE_TITLE: productComparison ? "Earlier tests inside Recurs" : "What happened in our tests?",
   TASK_RESULTS: taskResults(summary),
