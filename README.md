@@ -64,11 +64,11 @@ diff, and your draft is still there when you return.
 
 ## Built to stay responsive
 
-| Recurs, same workload before → after | Result |
-| --- | --- |
-| Streaming turn, median over 120 turns | 501–521 ms → **124 ms** |
-| Loading a chat's agent history beside 30 other chats | 1.1 s → **8 ms** |
-| Peak physical memory over 120 turns | ~400 MiB → **~270 MiB** |
+| Recurs, same workload | Before | After |
+| --- | --- | --- |
+| Streaming turn, median over 120 turns | 501–521 ms | **124 ms** |
+| Loading a chat's agent history beside 30 other chats | 1.1 s | **8 ms** |
+| Peak physical memory over 120 turns | ~400 MiB | **~270 MiB** |
 
 Against one local model server with identical replies, Recurs finished a long
 streamed answer in **369 ms**, against 432 ms for Codex CLI and 495 ms for

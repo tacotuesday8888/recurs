@@ -31,10 +31,16 @@ const socket = new WebSocket(target.webSocketDebuggerUrl, { maxPayload: 1 << 30 
 await new Promise((resolve) => socket.once("open", resolve));
 let nextId = 0;
 const pending = new Map();
-socket.on("message", (data) => { const message = JSON.parse(data); pending.get(message.id)?.(message); });
+socket.on("message", (data) => {
+  const message = JSON.parse(data);
+  const request = pending.get(message.id);
+  if (request === undefined) return;
+  pending.delete(message.id);
+  if (message.error) request.reject(new Error(message.error.message)); else request.resolve(message.result);
+});
 const send = (method, params = {}) => new Promise((resolve, reject) => {
   const id = ++nextId;
-  pending.set(id, (message) => message.error ? reject(new Error(message.error.message)) : resolve(message.result));
+  pending.set(id, { resolve, reject });
   socket.send(JSON.stringify({ id, method, params }));
 });
 async function rasterize(svg) {
