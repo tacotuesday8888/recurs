@@ -147,6 +147,14 @@ describe("durable execution inventory", () => {
     expect(inventory[0]?.detail).toContain("1 session log(s) could not be read");
   });
 
+  it("marks delegated executions in the chat listing so they stay inside their parent chat", async () => {
+    const { sessions, parent, root } = await fixture();
+    await sessions.createPinnedSession({ id: "child", cwd: root, backend, at: "2026-07-17T00:01:00.000Z", agent: childDescriptor({ agentId: "child-agent", parentSessionId: parent.id, parentAgentId: parent.agent.id, description: "Child" }) });
+    const listed = new Map((await sessions.list()).map((entry) => [entry.id, entry]));
+    expect(listed.get("child")?.parentSessionId).toBe(parent.id);
+    expect(listed.get(parent.id)?.parentSessionId).toBeUndefined();
+  });
+
   it("ignores parent cycles outside the conversation", async () => {
     const { sessions, parent, root } = await fixture();
     for (const [id, parentId] of [["loop-a", "loop-b"], ["loop-b", "loop-a"]] as const) {

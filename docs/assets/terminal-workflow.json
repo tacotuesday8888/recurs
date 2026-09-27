@@ -1,19 +1,21 @@
 {
   "source": "scripts/smoke-terminal.mjs",
-  "captureCommand": "npm run package:smoke-terminal -- --update-capture --record-gif-frames",
+  "captureCommand": "npm run package:smoke-terminal -- --update-capture --record-gif-frames, then node scripts/render-workflow-gif.mjs <frames> docs/assets/terminal-workflow.gif 2",
   "provider": "deterministic local test provider",
   "modelBenchmark": false,
-  "installedArchiveSha256": "70646242df243bf5b1121a22ff0c9c149f02f0d95a272c6b3fffe199e79e7d41",
+  "installedArchiveSha256": "f7d1cef1bf62e3558d4c3cabe947d77f9e065159f2d0abd0dade265192a081b8",
   "frameDurationMs": 100,
-  "frames": 90,
+  "frames": 102,
   "files": {
     "terminal-workflow.gif": {
-      "sha256": "534edf1c9f4233f9866a395592b2e4443088cdfa0fa92b7e2cfc36b1da904c19",
-      "bytes": 276643
+      "sha256": "fb09cd9496995c2910e6b9faf549a6f15218aa2427c9ca4b1b37f4ca3058913d",
+      "bytes": 372623,
+      "scale": 2
     },
     "terminal-workflow.mp4": {
       "sha256": "1f467f1239a868144c09dd59a0534ddbb99bede945e6b90a1bbcc84573654394",
-      "bytes": 301057
+      "bytes": 301057,
+      "note": "Website demo video from the September 13 capture; not regenerated here (no local video encoder)."
     },
     "terminal-patch.svg": {
       "sha256": "8f0b8b8db9eab5caa211a26cf66d20f3fcd35a9d987866b1c3a2f701a7a8b83e",
