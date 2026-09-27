@@ -155,8 +155,10 @@ import {
   writeOutput,
 } from "./render.js";
 import { startRepl } from "./repl.js";
+import { installTerminationCleanup } from "./termination.js";
 import {
   createRecursInteractiveShell,
+  type RecursInteractiveShell,
   type InteractiveShellExit,
   type InteractiveShellStartOptions,
   type InteractiveOnboardingUi,
@@ -2656,6 +2658,17 @@ export async function runCliProcess(
   if (interactiveOperationController !== undefined) {
     process.once("SIGINT", cancelInteractiveOperation);
   }
+  const shells: RecursInteractiveShell[] = [];
+  const termination = installTerminationCleanup({
+    // Interactive operations cancel on SIGINT themselves, and the full-screen
+    // terminal receives Ctrl+C as input rather than as a signal.
+    signals: interactiveOperationController === undefined
+      ? ["SIGHUP", "SIGINT", "SIGTERM"]
+      : ["SIGHUP", "SIGTERM"],
+    restoreTerminal: () => {
+      for (const shell of shells) shell.restoreTerminal();
+    },
+  });
   const confirm = async (message: string): Promise<boolean> => {
     const terminal = createInterface({
       input: processStdin,
@@ -2731,10 +2744,14 @@ export async function runCliProcess(
       terminalUi,
       ...(terminalUi
         ? {
-            createInteractiveShell: (cwd) => createRecursInteractiveShell({
-              cwd,
-              dataDirectory,
-            }),
+            createInteractiveShell: (cwd) => {
+              const shell = createRecursInteractiveShell({
+                cwd,
+                dataDirectory,
+              });
+              shells.push(shell);
+              return shell;
+            },
           }
         : {}),
       automation: isAutomationEnvironment(process.env),
@@ -2812,7 +2829,7 @@ export async function runCliProcess(
           downstream: events,
         });
         try {
-          return await createStandaloneRuntime(hooks.events, {
+          const runtime = await createStandaloneRuntime(hooks.events, {
             ...(processOptions.ptyDriver === undefined
               ? {}
               : { ptyDriver: processOptions.ptyDriver }),
@@ -2840,6 +2857,8 @@ export async function runCliProcess(
               : { companyBlueprint: options.companyBlueprint }),
             lifecycleHookClose: hooks.close,
           });
+          termination.register(() => runtime.close());
+          return runtime;
         } catch (error) {
           await hooks.close();
           throw error;
@@ -2847,17 +2866,21 @@ export async function runCliProcess(
       },
       runAcp: () => serveRecursAcpStdio(
         {
-          createRuntime: async (cwd, events) => createStandaloneRuntime(
-            events,
-            {
-              cwd,
-              dataDirectory,
-              reuseExistingSession: false,
-              ...(processOptions.ptyDriver === undefined
-                ? {}
-                : { ptyDriver: processOptions.ptyDriver }),
-            },
-          ),
+          createRuntime: async (cwd, events) => {
+            const runtime = await createStandaloneRuntime(
+              events,
+              {
+                cwd,
+                dataDirectory,
+                reuseExistingSession: false,
+                ...(processOptions.ptyDriver === undefined
+                  ? {}
+                  : { ptyDriver: processOptions.ptyDriver }),
+              },
+            );
+            termination.register(() => runtime.close());
+            return runtime;
+          },
         },
         processStdin,
         processStdout,
@@ -2963,5 +2986,6 @@ export async function runCliProcess(
     });
   } finally {
     process.removeListener("SIGINT", cancelInteractiveOperation);
+    termination.dispose();
   }
 }

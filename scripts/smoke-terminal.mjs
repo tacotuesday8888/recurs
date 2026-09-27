@@ -107,9 +107,20 @@ const server = createServer(async (request, response) => {
       return;
     }
   }
+  if (String(prompt).includes("Start a background watcher")) {
+    const lastUser = body.messages.findLastIndex((message) => message.role === "user");
+    if (body.messages.slice(lastUser + 1).every((message) => message.role !== "tool")) {
+      const call = { name: "run_command", arguments: JSON.stringify({ command: "sleep 4861", timeoutMs: 600000, yieldTimeMs: 1000 }) };
+      response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "background-watcher", type: "function", function: call }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
+  }
   const stressTurn = /^stress-turn-(\d+)$/u.exec(String(prompt));
   const text = stressTurn !== null
     ? Array.from({ length: 160 }, (_, index) => `Synthetic stress line ${index}: bounded output and Unicode 界面🙂.\n`).join("") + `\nSTRESS DONE ${stressTurn[1]}`
+    : String(prompt).includes("Start a background watcher")
+    ? "Watcher started."
     : String(prompt).includes("Handle whitespace and empty entries in comma-separated input.")
     ? "Updated the parser.\n\n- [x] Read parser.ts\n- [x] Handle whitespace and empty entries\n- [x] Run 4 parser checks\n\nReady for review."
     : String(prompt).includes("long output")
@@ -537,8 +548,31 @@ try {
   organized.process.write("\u0011");
   await organized.wait(() => organized.exit() !== undefined, "organized restart exit");
   organized.terminal.dispose();
+  // SIGTERM (like closing the terminal) must leave the terminal usable and
+  // stop background commands Recurs started in their own process groups.
+  const signalled = await launch([]);
+  await signalled.wait((screen) => screen.includes("M manage"), "launcher before termination");
+  signalled.process.write("\r");
+  await signalled.wait((screen) => screen.includes("/ CHAT"), "chat before termination");
+  signalled.process.write("/permissions full\r");
+  await signalled.wait((screen) => screen.includes("APPROVAL REQUIRED"), "full access for a background command");
+  signalled.process.write("yes\r");
+  await signalled.wait((screen) => screen.includes("Permission mode: Full Access"), "full access applied");
+  signalled.process.write("Start a background watcher\r");
+  await signalled.wait((screen) => screen.includes("Watcher started.") && screen.includes("Parent · ready"), "background command yielded");
+  const backgroundCommands = async () => (await exec("ps", ["-axo", "pid=,command="])).stdout.split("\n").filter((line) => line.includes("sleep 4861"));
+  assert((await backgroundCommands()).length > 0, "background command runs before termination");
+  const outputBeforeSignal = capture.length;
+  signalled.process.kill("SIGTERM");
+  await signalled.wait(() => signalled.exit() !== undefined, "exit after SIGTERM");
+  assert.equal(signalled.exit(), 143);
+  const restoredOutput = capture.slice(outputBeforeSignal).map(([, , data]) => data).join("");
+  for (const sequence of ["\u001b[?1000l", "\u001b[?2004l", "\u001b[?25h"]) assert(restoredOutput.includes(sequence), `SIGTERM restores terminal mode ${JSON.stringify(sequence)}`);
+  for (let attempt = 0; attempt < 20 && (await backgroundCommands()).length > 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(await backgroundCommands(), [], "SIGTERM stops owned background commands");
+  signalled.terminal.dispose();
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, ...(stress ? { stress: { method: "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof", samples: stressSamples } } : {}), checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, ...(stress ? { stress: { method: "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof", samples: stressSamples } } : {}), checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart", "SIGTERM restores the terminal and stops background commands"], capture: temporary }, null, 2));
 } finally {
   if (recordingTimer) clearInterval(recordingTimer);
   releaseChild();
