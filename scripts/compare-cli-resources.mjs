@@ -1,5 +1,6 @@
 // Compare CLI time and memory against one deterministic local model server.
 // Protocol: benchmarks/cli-resources/PROTOCOL.md. No provider account is used.
+import { Buffer } from "node:buffer";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import console from "node:console";
@@ -7,7 +8,9 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import process from "node:process";
+import { clearTimeout, setTimeout } from "node:timers";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
