@@ -762,6 +762,12 @@ filtered environment.
 PTY attachment is a bounded relay for interactive commands, not a complete
 terminal emulator or a safe hidden-input channel.
 
+Commands that keep running after a turn belong to the Recurs process, and
+quitting stops them. Closing the terminal (`SIGHUP`, exit status 129),
+`SIGTERM` (143), and interrupting `recurs run` (`SIGINT`, 130) also stop them
+and restore the terminal before exiting. A forced kill (`SIGKILL`) or power
+loss cannot run this cleanup.
+
 ## Sessions, checkpoints, and recovery
 
 Sessions are append-only and preserve their backend, working root, permissions,
