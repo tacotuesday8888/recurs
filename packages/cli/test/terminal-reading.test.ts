@@ -95,3 +95,25 @@ describe("terminal reading and intervention", () => {
     expect(chat.render(24).every((line) => visibleWidth(line) <= 24)).toBe(true);
   });
 });
+
+describe("restored conversation", () => {
+  it("reads like the live chat instead of raw roles and tool output", async () => {
+    const { restoredTranscriptText } = await import("../src/terminal-ui.js");
+    const text = restoredTranscriptText({
+      ...detail,
+      messages: [],
+      transcript: [
+        { kind: "prompt", text: "Fix the parser" },
+        { kind: "tool", name: "read_file", failed: false },
+        { kind: "tool", name: "read_file", failed: false },
+        { kind: "tool", name: "run_command", failed: true },
+        { kind: "response", text: "Fixed." },
+        { kind: "prompt", text: "Now the tests" },
+        { kind: "outcome", status: "cancelled", text: "Agent run cancelled" },
+        { kind: "outcome", status: "interrupted", text: "Recurs exited before this turn finished" },
+      ],
+    });
+    expect(text).toBe("\n› Fix the parser\n\n→ Used read_file · ✗ Failed run_command\n\nFixed.\n\n› Now the tests\n\nTurn cancelled\n\nTurn interrupted: Recurs exited before this turn finished\n");
+    expect(text).not.toContain("assistant:");
+  });
+});

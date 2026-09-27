@@ -4,6 +4,10 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Reopened chats read like the live conversation: prompts, replies, the tools
+  each turn used, and turns that were cancelled, failed, or interrupted. They
+  previously showed raw `assistant:`/`tool:` lines, dumped full tool output, and
+  hid unfinished turns. Full output remains in the execution inspector and `/export`.
 - Opening a chat, inspecting its executions, and cancelling a child no longer
   read every other chat's history in full: the execution list identifies the
   conversation's sessions from their first records and validates only those.

@@ -170,3 +170,33 @@ describe("durable execution inventory", () => {
     expect((await sessions.loadState(child.id)).agentLifecycle.status).toBe("running");
   });
 });
+
+describe("durable chat transcript", () => {
+  it("keeps prompts, replies, tool names and unfinished turns without tool output", async () => {
+    const { durableSessionTranscript } = await import("../src/index.js");
+    const base = { version: 2, sessionId: "s", at: "2026-07-17T00:00:00.000Z", turnId: "t" } as const;
+    const records = [
+      { ...base, sequence: 1, type: "turn_started", prompt: "Fix the parser" },
+      { ...base, sequence: 2, type: "model_completed", message: { id: "m1", role: "assistant", content: "", toolCalls: [{ id: "c1", name: "read_file", arguments: {} }] }, usage: null, stopReason: "tool_calls" },
+      { ...base, sequence: 3, type: "tool_started", call: { id: "c1", name: "read_file", arguments: {} } },
+      { ...base, sequence: 4, type: "tool_completed", callId: "c1", result: { output: "x".repeat(100_000) } },
+      { ...base, sequence: 5, type: "tool_started", call: { id: "c2", name: "run_command", arguments: {} } },
+      { ...base, sequence: 6, type: "tool_failed", callId: "c2", error: { safeMessage: "exit 1" } },
+      { ...base, sequence: 7, type: "model_completed", message: { id: "m2", role: "assistant", content: "Fixed." }, usage: null, stopReason: "complete" },
+      { ...base, sequence: 8, type: "turn_started", prompt: "Now the tests" },
+      { ...base, sequence: 9, type: "turn_cancelled", reason: "Agent run cancelled" },
+      { ...base, sequence: 10, type: "turn_started", prompt: "Retry" },
+      { ...base, sequence: 11, type: "turn_failed", error: { safeMessage: "Provider unavailable" } },
+    ] as unknown as Parameters<typeof durableSessionTranscript>[0];
+    expect(durableSessionTranscript(records)).toEqual([
+      { kind: "prompt", text: "Fix the parser" },
+      { kind: "tool", name: "read_file", failed: false },
+      { kind: "tool", name: "run_command", failed: true },
+      { kind: "response", text: "Fixed." },
+      { kind: "prompt", text: "Now the tests" },
+      { kind: "outcome", status: "cancelled", text: "Agent run cancelled" },
+      { kind: "prompt", text: "Retry" },
+      { kind: "outcome", status: "failed", text: "Provider unavailable" },
+    ]);
+  });
+});
