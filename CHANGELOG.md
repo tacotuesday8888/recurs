@@ -4,6 +4,10 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Reopened chats read like the live conversation: prompts, replies, the tools
+  each turn used, and turns that were cancelled, failed, or interrupted. They
+  previously showed raw `assistant:`/`tool:` lines, dumped full tool output, and
+  hid unfinished turns. Full output remains in the execution inspector and `/export`.
 - Record benchmark slots that hit their time limit as
   `execution_deadline_exceeded` and still grade the files they left. The hidden
   checks previously ran with the already-cancelled signal and were recorded as a
