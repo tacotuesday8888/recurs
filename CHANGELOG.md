@@ -8,6 +8,11 @@ Notable user-facing changes are recorded here when they ship.
   each turn used, and turns that were cancelled, failed, or interrupted. They
   previously showed raw `assistant:`/`tool:` lines, dumped full tool output, and
   hid unfinished turns. Full output remains in the execution inspector and `/export`.
+- Record benchmark slots that hit their time limit as
+  `execution_deadline_exceeded` and still grade the files they left. The hidden
+  checks previously ran with the already-cancelled signal and were recorded as a
+  failed workspace inventory without inspecting anything; the Codex control arm
+  recorded the same event as not run, so the two arms were scored differently.
 - Stop background commands when Recurs is closed by a signal. Closing the
   terminal window, `SIGTERM`, and Ctrl+C during `recurs run` previously exited
   at once and left commands started by the agent running; `SIGTERM` also left
