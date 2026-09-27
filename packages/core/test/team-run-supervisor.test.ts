@@ -300,7 +300,12 @@ async function harness(options: HarnessOptions = {}) {
   let implementStarts = 0;
   const implementFinishWaits = new Map<number, Promise<void>>();
   const releaseNextImplement = new Map<number, () => void>();
-  let implementFinishTurn = Promise.resolve();
+  // Ordered finishes begin only after every ordered worker has started, so a
+  // fast first worker cannot finish before a concurrent sibling is dispatched.
+  let releaseStartedImplements!: () => void;
+  let implementFinishTurn = new Promise<void>((resolve) => {
+    releaseStartedImplements = resolve;
+  });
   for (const taskIndex of options.implementFinishOrder ?? []) {
     implementFinishWaits.set(taskIndex, implementFinishTurn);
     let release!: () => void;
@@ -337,6 +342,10 @@ async function harness(options: HarnessOptions = {}) {
       if (correlation.role === "implement" &&
         ++implementStarts === options.cancelAfterImplementStarts) {
         parentAbort.abort();
+      }
+      if (correlation.role === "implement" &&
+        implementStarts === options.implementFinishOrder?.length) {
+        releaseStartedImplements();
       }
 
       const childFailure = correlation.role === "implement"
