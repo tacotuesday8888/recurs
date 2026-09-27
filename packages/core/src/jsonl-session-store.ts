@@ -49,6 +49,8 @@ export interface SessionListEntry {
   model: string;
   updatedAt: string;
   version: 1 | 2;
+  /** The first prompt, on one line and bounded, to tell untitled chats apart. */
+  preview?: string;
 }
 
 export interface CreatePinnedSessionOptions {
@@ -200,6 +202,12 @@ async function truncateAndSync(file: string, byteLength: number): Promise<void> 
   } finally {
     await handle.close();
   }
+}
+
+function sessionPreview(prompt: string): string | undefined {
+  const line = prompt.replace(/\s+/gu, " ").trim();
+  if (line === "") return undefined;
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
 }
 
 function decodeUtf8(bytes: Uint8Array, sessionId: string, preserveBom = false): string {
@@ -656,9 +664,10 @@ export class JsonlSessionStore {
   }
 
   /** Validate every record while retaining only the endpoints needed by history. */
-  async #readSummary(sessionId: string): Promise<{ first: AnySessionRecord | undefined; last: AnySessionRecord | undefined }> {
+  async #readSummary(sessionId: string): Promise<{ first: AnySessionRecord | undefined; last: AnySessionRecord | undefined; preview?: string }> {
     let first: AnySessionRecord | undefined;
     let last: AnySessionRecord | undefined;
+    let preview: string | undefined;
     let index = 0;
     let fragments: Uint8Array[] = [];
     try {
@@ -672,6 +681,7 @@ export class JsonlSessionStore {
           const record = this.#parseRecord(sessionId, line, index++, last?.version);
           first ??= record;
           last = record;
+          if (preview === undefined && record.type === "turn_started") preview = sessionPreview(record.prompt) ?? undefined;
           fragments = [];
           start = end + 1;
         }
@@ -684,9 +694,11 @@ export class JsonlSessionStore {
     if (fragments.length > 0) {
       // Preserve existing locked quarantine/recovery semantics for a crash tail.
       const recovered = await this.load(sessionId);
-      return { first: recovered.records[0], last: recovered.records.at(-1) };
+      const prompt = recovered.records.find((record) => record.type === "turn_started");
+      const recoveredPreview = prompt?.type === "turn_started" ? sessionPreview(prompt.prompt) : undefined;
+      return { first: recovered.records[0], last: recovered.records.at(-1), ...(recoveredPreview === undefined ? {} : { preview: recoveredPreview }) };
     }
-    return { first, last };
+    return { first, last, ...(preview === undefined ? {} : { preview }) };
   }
 
   async loadState(
@@ -836,7 +848,7 @@ export class JsonlSessionStore {
     const entries: SessionListEntry[] = [];
     for (const file of files) {
       const id = file.slice(0, -".jsonl".length);
-      const { first, last } = await this.#readSummary(id);
+      const { first, last, preview } = await this.#readSummary(id);
       if (first?.type !== "session_created" || last === undefined) {
         throw new SessionStoreError(
           "corrupt_log",
@@ -849,6 +861,7 @@ export class JsonlSessionStore {
         model: first.version === 1 ? first.model : first.backend.modelId,
         updatedAt: last.at,
         version: first.version,
+        ...(preview === undefined ? {} : { preview }),
       });
     }
     const metadata = new Map((await new FileSessionMetadataStore(path.join(await realpath(this.directory), "metadata")).list()).map((entry) => [entry.id, entry]));

@@ -102,6 +102,19 @@ export interface LaunchPresentation {
   readonly theme?: TerminalTheme;
 }
 
+/** A saved title, else the first prompt, so untitled chats stay distinguishable. */
+function chatLabel(session: SessionListEntry, currentSessionId: string | null, index: number): string {
+  return session.title ?? session.preview ?? (session.id === currentSessionId ? "Current chat" : `Recent chat ${index + 1}`);
+}
+
+/** Local date and time; the stored value stays UTC. */
+function chatTime(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? iso.slice(0, 16) : new Intl.DateTimeFormat(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
+}
+
 export class LaunchComponent implements Component {
   #selectedIndex: number;
   #sessions: readonly SessionListEntry[];
@@ -136,7 +149,7 @@ export class LaunchComponent implements Component {
     const terminalRows = Math.max(1, this.presentation.rows?.() ?? 30);
     if (terminalRows < 12) {
       const selected = this.#sessions[this.#selectedIndex];
-      const label = selected === undefined ? "Start new chat" : selected.title ?? (selected.id === this.model.currentSessionId ? "Current chat" : `Recent chat ${this.#selectedIndex + 1}`);
+      const label = selected === undefined ? "Start new chat" : chatLabel(selected, this.model.currentSessionId, this.#selectedIndex);
       const selection = theme?.accent(line(`> ${label}`)) ?? line(`> ${label}`);
       if (terminalRows === 1) return [selection];
       const compact = [selection, line("↑↓ select · Enter open · q quit")];
@@ -175,13 +188,13 @@ export class LaunchComponent implements Component {
     ];
     for (const [offset, session] of visible.entries()) {
       const index = windowStart + offset;
-      const updated = session.updatedAt.replace("T", " ").slice(0, 16);
-      const label = `${session.pinned ? "★ " : ""}${session.title ?? (session.id === this.model.currentSessionId ? "Current chat" : `Recent chat ${index + 1}`)}`;
+      const updated = chatTime(session.updatedAt);
+      const label = `${session.pinned ? "★ " : ""}${chatLabel(session, this.model.currentSessionId, index)}`;
       rows.push(
         line(`${index === this.#selectedIndex ? ">" : " "} ${label}`),
-        theme?.muted(line(`    ${session.model} · ${updated} UTC${
+        theme?.muted(line(`    ${session.model} · ${updated}${
           session.id === this.model.currentSessionId ? " · CURRENT" : ""
-        }`)) ?? line(`    ${session.model} · ${updated} UTC${
+        }`)) ?? line(`    ${session.model} · ${updated}${
           session.id === this.model.currentSessionId ? " · CURRENT" : ""
         }`),
       );

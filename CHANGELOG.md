@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Name untitled chats by their first prompt and show local times on the chat
+  list, instead of "Recent chat 2" and UTC stamps. Remove the duplicate
+  RECURS label under the chat-home letter. The terminal opening now uses the
+  same line as the website and README: "Choose the models. Bound the team.
+  Review every change."
 - Stop background commands when Recurs is closed by a signal. Closing the
   terminal window, `SIGTERM`, and Ctrl+C during `recurs run` previously exited
   at once and left commands started by the agent running; `SIGTERM` also left

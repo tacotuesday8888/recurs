@@ -4,6 +4,9 @@ import type { TerminalTheme } from "./terminal-style.js";
 
 import { RECURS_OPENING_WORDMARK_ROWS } from "./generated/recurs-brand.js";
 
+/** Shared with the website and README. */
+export const RECURS_TAGLINE = "Choose the models. Bound the team. Review every change.";
+
 /** Uses the same normal-based ASCII lighting as the original 3D design preview. */
 export function renderTerminalOpening(width: number, available: number, theme: TerminalTheme, frame = 0, options: { compactWordmark?: boolean } = {}): string[] {
   if (available < 5) return [];
@@ -27,8 +30,9 @@ export function renderTerminalOpening(width: number, available: number, theme: T
       }
       return center(result + style(run, role));
     }), "");
-    if (compact) return [...rows, theme.accent(center("RECURS"))].slice(0, available);
+    // Callers with their own RECURS header need only the letter.
+    if (compact) return (options.compactWordmark === true ? rows : [...rows, theme.accent(center("RECURS"))]).slice(0, available);
   }
-  rows.push(...RECURS_OPENING_WORDMARK_ROWS.map((line) => theme.accent(center(line))), "", theme.muted(center("One task. A team you control.")));
+  rows.push(...RECURS_OPENING_WORDMARK_ROWS.map((line) => theme.accent(center(line))), "", theme.muted(center(RECURS_TAGLINE)));
   return rows.slice(0, available);
 }
