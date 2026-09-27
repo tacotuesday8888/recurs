@@ -9,6 +9,12 @@ version; no outcome-based retries, task swaps or rescoring.
 On the same small coding tasks, how often does each product deliver a correct
 change within five minutes when run by its owner's subscription?
 
+A second, predeclared question tests the Recurs design itself: when one strong
+lead (Sol) delegates implementation and repair to a smaller model (Terra) and
+review to another (Luna), does the team finish as often as Sol working alone,
+and how is usage spread across model tiers? This runs through the same harness
+as a separate campaign.
+
 ## Products and models
 
 | Product | Account | Configuration |
@@ -23,6 +29,12 @@ the existing audited harness. Claude Code runs through
 workspace initialisation, five-minute execution limit and hidden verifier. The
 harnesses differ in process wrapping; timing is reported per product, not as a
 ranking. No product sees the hidden checks or reference solutions.
+
+For the second question, `recurs benchmark company --connection <Sol>` runs Sol
+as the single-agent baseline against a team led by Sol with the saved Terra and
+Luna routes, two attempts per task. Efficiency is reported per model tier as provider-reported input and
+output tokens and model requests; unknown counters stay unknown, never zero.
+No dollar figure is estimated from subscription usage.
 
 ## Tasks
 
@@ -39,7 +51,8 @@ order), then two Claude Code attempts.
 
 ## Finished
 
-An attempt is finished only if execution completed within 300 seconds, the
+An attempt is finished only if its total recorded time (setup, execution and
+grading) is at most 300 seconds, execution completed, the
 workspace-integrity checks pass, and every visible and hidden task check
 passes. A later source audit rejects grader introspection, hard-coded answers
 and global tampering equally for all products; any rejection is reported with
