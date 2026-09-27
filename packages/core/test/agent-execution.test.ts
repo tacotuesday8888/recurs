@@ -6,7 +6,7 @@ import {
   getOperatingModePolicy,
   type AgentSessionDescriptor,
 } from "@recurs/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AgentExecutionService,
@@ -117,6 +117,42 @@ describe("durable execution inventory", () => {
     expect((await service.inspect(parent.id, child.id))?.execution.limits).toEqual(child.agent.limits);
     expect((await service.inspect(parent.id, child.id))?.execution.limits.maxRequests).toBe(8);
     expect(await service.inspect(parent.id, foreignParent.id)).toBeNull();
+  });
+
+  it("reads only the conversation's own logs in full", async () => {
+    const { sessions, parent, foreignParent, root } = await fixture();
+    const child = await sessions.createPinnedSession({ id: "child", cwd: root, backend, at: "2026-07-17T00:01:00.000Z", agent: childDescriptor({ agentId: "child-agent", parentSessionId: parent.id, parentAgentId: parent.agent.id, description: "Child" }) });
+    const foreignChild = await sessions.createPinnedSession({ id: "foreign-child", cwd: root, backend, at: "2026-07-17T00:01:00.000Z", agent: childDescriptor({ agentId: "foreign-agent", parentSessionId: foreignParent.id, parentAgentId: foreignParent.agent.id, description: "Other chat" }) });
+    // Unrelated history with a damaged later record is neither read nor reported.
+    const foreignLog = path.join(root, "sessions", `${foreignChild.id}.jsonl`);
+    await writeFile(foreignLog, `${await readFile(foreignLog, "utf8")}{not valid JSON}\n`);
+    // A log whose first record is still being written is not yet an execution.
+    await writeFile(path.join(root, "sessions", "creating.jsonl"), '{"version":2,"type":"session_created"');
+    const read = vi.spyOn(sessions, "loadReadOnly");
+    const inventory = await new AgentExecutionService(sessions).list(parent.id);
+    expect(inventory.map((item) => item.executionId)).toEqual([parent.id, child.id]);
+    expect(inventory[0]?.detail).toBeNull();
+    expect(read.mock.calls.map(([id]) => id).sort()).toEqual([child.id, parent.id].sort());
+  });
+
+  it("excludes a descendant whose own log fails validation and says history is incomplete", async () => {
+    const { sessions, parent, root } = await fixture();
+    const child = await sessions.createPinnedSession({ id: "child", cwd: root, backend, at: "2026-07-17T00:01:00.000Z", agent: childDescriptor({ agentId: "child-agent", parentSessionId: parent.id, parentAgentId: parent.agent.id, description: "Child" }) });
+    await sessions.createPinnedSession({ id: "grandchild", cwd: root, backend, at: "2026-07-17T00:02:00.000Z", agent: { ...childDescriptor({ agentId: "grandchild-agent", parentSessionId: child.id, parentAgentId: child.agent.id, description: "Grandchild" }), depth: 2, operatingMode: { id: "balanced_v6", version: 6 }, company: { blueprintId: "company", blueprintVersion: 2, blueprintRevision: 1, roleId: "worker", roleVersion: 1 }, companyGoal: { runId: "goal", assignmentId: "assignment", parentAssignmentId: "lead" }, limits: companyAgentLimits("balanced_v6", { blueprintId: "company", blueprintVersion: 2, blueprintRevision: 1, roleId: "worker", roleVersion: 1 }) } });
+    const childLog = path.join(root, "sessions", `${child.id}.jsonl`);
+    await writeFile(childLog, `${await readFile(childLog, "utf8")}{not valid JSON}\n`);
+    const inventory = await new AgentExecutionService(sessions).list(parent.id);
+    // The grandchild's validated ancestry passes through the unreadable child.
+    expect(inventory.map((item) => item.executionId)).toEqual([parent.id]);
+    expect(inventory[0]?.detail).toContain("1 session log(s) could not be read");
+  });
+
+  it("ignores parent cycles outside the conversation", async () => {
+    const { sessions, parent, root } = await fixture();
+    for (const [id, parentId] of [["loop-a", "loop-b"], ["loop-b", "loop-a"]] as const) {
+      await sessions.createPinnedSession({ id, cwd: root, backend, at: "2026-07-17T00:01:00.000Z", agent: childDescriptor({ agentId: `${id}-agent`, parentSessionId: parentId, parentAgentId: `${parentId}-agent`, description: id }) });
+    }
+    expect((await new AgentExecutionService(sessions).list(parent.id)).map((item) => item.executionId)).toEqual([parent.id]);
   });
 
   it("reports unowned recorded activity honestly and reads the selected durable conversation", async () => {
