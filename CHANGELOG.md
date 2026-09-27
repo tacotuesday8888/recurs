@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Stop background commands when Recurs is closed by a signal. Closing the
+  terminal window, `SIGTERM`, and Ctrl+C during `recurs run` previously exited
+  at once and left commands started by the agent running; `SIGTERM` also left
+  the full-screen terminal in raw, mouse-reporting mode. Recurs now cleans up,
+  restores the terminal, and exits with status 129, 143, or 130.
 - Opening a chat, inspecting its executions, and cancelling a child no longer
   read every other chat's history in full: the execution list identifies the
   conversation's sessions from their first records and validates only those.
