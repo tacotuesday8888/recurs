@@ -165,8 +165,8 @@ test("real audited page preserves every outcome and separates reviewer observati
   const exported = JSON.parse(await readFile(new URL("../../benchmarks/product-comparison/website-results.json", import.meta.url), "utf8"));
   const parsed = parseProductComparison(exported);
   assert.deepEqual(["codex-cli", "company-auto"].map(arm => parsed.attempts.filter(a => a.armId === arm && productAttemptCompleted(a)).length), [3, 2]);
-  const html = await readFile(new URL("../.build/index.html", import.meta.url), "utf8");
-  assert.match(html, /href="#product-comparison">Benchmarks/u);
+  const finding = JSON.parse(await readFile(new URL("../../benchmarks/product-comparison/review-finding.json", import.meta.url), "utf8"));
+  const html = renderProductComparison(exported, finding);
   assert.match(html, /Review flagged an edge case\. Our audit confirmed the test gap\./u);
   assert.match(html, /Recurs flagged a rebuild edge case, but the repair did not finish\./u);
   assert.match(html, /<details><summary>See the review finding<\/summary>/u);
@@ -193,8 +193,15 @@ test("optional review observation escapes text and rejects incomplete unsupporte
   assert.doesNotMatch(renderProductComparison(syntheticProductComparison()), /product-review-story/u);
 });
 
-test("benchmark overview preserves all outcomes with twelve inspectable slots", async () => {
+test("the default homepage leaves out the comparison and makes no comparative claim", async () => {
   const html = await readFile(new URL("../.build/index.html", import.meta.url), "utf8");
+  assert.doesNotMatch(html, /id="product-comparison"|Codex CLI finished/u);
+  assert.doesNotMatch(html, /better than|outperform|beats /iu);
+});
+
+test("benchmark overview preserves all outcomes with twelve inspectable slots", async () => {
+  const exported = JSON.parse(await readFile(new URL("../../benchmarks/product-comparison/website-results.json", import.meta.url), "utf8"));
+  const html = renderProductComparison(exported);
   assert.equal((html.match(/class="benchmark-slot /gu) ?? []).length, 12);
   assert.equal((html.match(/class="benchmark-slot finished"/gu) ?? []).length, 5);
   assert.equal((html.match(/class="benchmark-slot unfinished"/gu) ?? []).length, 5);

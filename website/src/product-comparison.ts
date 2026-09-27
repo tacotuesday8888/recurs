@@ -144,6 +144,8 @@ const taskCopy: Record<TaskId, { title: string; description: string }> = {
   incremental_build_repair: { title: "Fix rebuild planning", description: "Repair change detection and dependency tracking so the right modules rebuild." },
   release_window_regressions: { title: "Detect seeded regressions", description: "Write a checker that accepts a working scheduler and rejects three deliberately introduced behavior changes." },
 };
+/** Declared per-attempt execution limit in the frozen protocol. */
+const attemptLimitSeconds = 300;
 const armName = (id: ArmId) => id === "codex-cli" ? "Codex CLI" : "Recurs team";
 const format = (value: number) => new Intl.NumberFormat("en-US").format(value);
 const count = (value: number) => `<span class="count-value"><span class="sr-only">${format(value)}</span><span aria-hidden="true" data-count-to="${value}">${format(value)}</span></span>`;
@@ -181,12 +183,18 @@ export function renderProductComparison(input?: unknown, reviewInput?: unknown):
   const data = parseProductComparison(input);
   const tokens = comparableTokens(data);
   const totals = armIds.map(arm => data.attempts.filter(attempt => attempt.armId === arm && productAttemptCompleted(attempt)).length);
-  const overview = `<div class="benchmark-overview" aria-label="Completion across all twelve attempts"><div class="benchmark-overview-head"><span></span>${productTaskIds.map(id => `<span>${taskCopy[id].title}</span>`).join("")}</div>${armIds.map(arm => `<div class="benchmark-overview-row"><span class="benchmark-arm">${armName(arm)}</span>${productTaskIds.map(id => `<div class="benchmark-pair">${[1, 2].map(repetition => {
+  const timeScaleSeconds = Math.max(100, Math.ceil(Math.max(...data.attempts.map(attempt => attempt.elapsedMs ?? 0)) / 100_000) * 100);
+  // Linear from zero; attempts without a recorded time sit in a separate gutter.
+  const plotShare = 88;
+  const position = (attempt: ProductAttempt) => attempt.elapsedMs === null ? 95 : attempt.elapsedMs / (timeScaleSeconds * 1000) * plotShare;
+  const ticks = Array.from({ length: timeScaleSeconds / 100 + 1 }, (_, index) => index * 100);
+  const limit = attemptLimitSeconds < timeScaleSeconds ? `<span class="dot-limit" style="left:${(attemptLimitSeconds / timeScaleSeconds * plotShare).toFixed(2)}%" aria-hidden="true"></span>` : "";
+  const dot = (id: TaskId, arm: ArmId, repetition: 1 | 2): string => {
     const attempt = data.attempts.find(item => item.armId === arm && item.scenarioId === id && item.repetition === repetition)!;
     const state = productAttemptCompleted(attempt) ? "finished" : attempt.validity === "invalid" ? "invalid" : "unfinished";
-    return `<button type="button" class="benchmark-slot ${state}" data-inspect-task="${id}" aria-controls="attempt-${id}-${arm}-${repetition}" aria-label="${armName(arm)}, ${taskCopy[id].title}, attempt ${repetition}: ${outcome(attempt)}" title="${outcome(attempt)}"><span aria-hidden="true">${state === "finished" ? "✓" : state === "invalid" ? "?" : "–"}</span></button>`;
-  }).join("")}</div>`).join("")}</div>`).join("")}<div class="benchmark-legend"><span><i class="finished"></i>Finished</span><span><i class="unfinished"></i>Not finished</span><span><i class="invalid"></i>Invalid comparison</span></div><p class="benchmark-hint">Each square is one attempt. Select it to inspect the result.</p></div>`;
-  const timeScaleSeconds = Math.max(100, Math.ceil(Math.max(...data.attempts.map(attempt => attempt.elapsedMs ?? 0)) / 100_000) * 100);
+    return `<button type="button" class="benchmark-slot ${state}" data-arm="${arm}" data-repetition="${repetition}" style="left:${position(attempt).toFixed(2)}%" data-inspect-task="${id}" aria-controls="attempt-${id}-${arm}-${repetition}" aria-label="${armName(arm)}, ${taskCopy[id].title}, attempt ${repetition}: ${outcome(attempt)}" title="${duration(attempt)} · ${outcome(attempt)}"></button>`;
+  };
+  const overview = `<figure class="benchmark-overview dot-plot" aria-label="Completion across all twelve attempts"><div class="dot-legend"><span><i class="dot-key codex"></i>Codex CLI</span><span><i class="dot-key recurs"></i>Recurs team</span><span><i class="dot-key filled"></i>Finished</span><span><i class="dot-key hollow"></i>Not finished</span><span><i class="dot-key dashed"></i>Invalid comparison</span></div>${productTaskIds.map(id => `<div class="dot-group"><div class="dot-task">${taskCopy[id].title}</div>${armIds.map(arm => `<div class="dot-row"><span class="dot-arm">${armName(arm)}</span><div class="dot-track">${ticks.map(tick => `<span class="dot-grid" style="left:${(tick / timeScaleSeconds * plotShare).toFixed(2)}%" aria-hidden="true"></span>`).join("")}${limit}${[1, 2].map(repetition => dot(id, arm, repetition as 1 | 2)).join("")}</div><span class="dot-count">${data.attempts.filter(attempt => attempt.armId === arm && attempt.scenarioId === id && productAttemptCompleted(attempt)).length} of 2</span></div>`).join("")}</div>`).join("")}<div class="dot-row dot-axis" aria-hidden="true"><span class="dot-arm"></span><div class="dot-track">${ticks.map(tick => `<span class="dot-tick" style="left:${(tick / timeScaleSeconds * plotShare).toFixed(2)}%">${tick} s</span>`).join("")}${limit ? `<span class="dot-tick dot-limit-label" style="left:${(attemptLimitSeconds / timeScaleSeconds * plotShare).toFixed(2)}%">5-minute limit</span>` : ""}<span class="dot-tick dot-unknown" style="left:95%">no time</span></div><span class="dot-count"></span></div><figcaption class="benchmark-hint">Each dot is one attempt, placed by elapsed time. Select it to inspect the result.</figcaption></figure>`;
   const finding = reviewInput === undefined ? undefined : parseProductReviewFinding(reviewInput);
   const reviewStory = finding === undefined ? "" : `<aside class="product-review-story" aria-labelledby="product-review-title"><h3 id="product-review-title">${escapeHtml(finding.title)}</h3><p>${escapeHtml(finding.summary)}</p><details><summary>See the review finding</summary><p>${escapeHtml(finding.reviewerObservation)}</p><p>${escapeHtml(finding.auditObservation)}</p><p>${escapeHtml(finding.outcome)}</p></details></aside>`;
   const rows = productTaskIds.map(id => {

@@ -41,12 +41,27 @@ document.querySelectorAll<HTMLButtonElement>("[data-install]").forEach((button) 
     installNote.firstChild!.textContent = method === "bun" ? "Bun installs the package; Node.js 22.22+ runs Recurs. " : "Node.js 22.22+ · macOS or Linux. ";
   });
 });
+function selectCommand(): void {
+  const range = document.createRange();
+  range.selectNodeContents(installCommand);
+  const selection = getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
 copyButton.addEventListener("click", () => {
   const status = document.querySelector<HTMLElement>("#copy-status")!;
-  void navigator.clipboard?.writeText(installCommand.textContent!)
-    .then(() => { status.textContent = "Installation command copied."; copyButton.textContent = "Copied"; })
-    .catch(() => { status.textContent = "Copy unavailable. Select and copy the command above."; copyButton.textContent = "Select text"; });
-  if (!navigator.clipboard) status.textContent = "Copy unavailable. Select and copy the command above.";
+  const copied = () => { status.textContent = "Installation command copied."; copyButton.textContent = "Copied"; };
+  // Without clipboard access, select the command and try the legacy copy path.
+  const fallback = () => {
+    selectCommand();
+    let legacy = false;
+    try { legacy = document.execCommand("copy"); } catch { /* Unsupported. */ }
+    if (legacy) { copied(); return; }
+    status.textContent = "Command selected. Press Command-C or Ctrl+C to copy it.";
+    copyButton.textContent = "Selected";
+  };
+  if (navigator.clipboard === undefined) { fallback(); return; }
+  void navigator.clipboard.writeText(installCommand.textContent!).then(copied, fallback);
 });
 
 installPageMotion(() => { showPoster(); recordingControl.textContent = "Play demo"; });
