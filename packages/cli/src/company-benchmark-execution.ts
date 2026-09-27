@@ -21,6 +21,7 @@ import {
 import {
   AgentLoopError,
   CompanyBenchmarkAllowanceError,
+  companyBenchmarkDeadlineExceeded,
   CompanyBenchmarkExecutionRecorder,
   CoordinatedRunError,
   JsonlTeamRunStore,
@@ -206,6 +207,11 @@ function maximumReportedCostPerRequest(
     ? input.allowance.reportedCostAllowanceUsd /
       input.allowance.requestAllowance
     : 0;
+}
+
+/** Verification did not run; this is not evidence that the candidate failed. */
+function notRunVerification(): CompanyBenchmarkWorkspaceVerification {
+  return { status: "not_run", checks: [] };
 }
 
 function failedVerification(): CompanyBenchmarkWorkspaceVerification {
@@ -468,18 +474,28 @@ export class RuntimeCompanyBenchmarkAdapter
         });
         failureStage = "execution";
       }
+      const deadlineExceeded = companyBenchmarkDeadlineExceeded(input.signal);
+      if (deadlineExceeded && executionStatus === "completed") {
+        // Work that finished after the declared limit is not a completed attempt.
+        executionStatus = "cancelled";
+        failureStage = "execution";
+      }
+      // A slot deadline stops execution, not the check of what it left behind.
+      const verificationSignal = input.verificationSignal ?? input.signal;
       try {
         verification = await verifyCompanyBenchmarkWorkspace({
           scenario,
           workspaceRoot: workspace,
           baseRevision: prepared.baseRevision,
-          ...(input.signal === undefined ? {} : { signal: input.signal }),
+          ...(verificationSignal === undefined ? {} : { signal: verificationSignal }),
           ...(this.#options.processRunner === undefined
             ? {}
             : { processRunner: this.#options.processRunner }),
         });
       } catch {
-        verification = failedVerification();
+        verification = verificationSignal?.aborted === true
+          ? notRunVerification()
+          : failedVerification();
       }
 
       const store = new JsonlTeamRunStore(
@@ -509,7 +525,7 @@ export class RuntimeCompanyBenchmarkAdapter
               failures: [{
                 stage: failureStage,
                 code: executionStatus === "cancelled"
-                  ? "execution_cancelled"
+                  ? deadlineExceeded ? "execution_deadline_exceeded" : "execution_cancelled"
                   : executionFailureCode ??
                     (
                       executionStatus === "interrupted"

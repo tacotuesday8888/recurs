@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Record benchmark slots that hit their time limit as
+  `execution_deadline_exceeded` and still grade the files they left. The hidden
+  checks previously ran with the already-cancelled signal and were recorded as a
+  failed workspace inventory without inspecting anything; the Codex control arm
+  recorded the same event as not run, so the two arms were scored differently.
 - Opening a chat, inspecting its executions, and cancelling a child no longer
   read every other chat's history in full: the execution list identifies the
   conversation's sessions from their first records and validates only those.

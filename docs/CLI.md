@@ -648,6 +648,12 @@ before any worker activated and no usage report was available. Review
 activation, final verdicts, Repair attempts, completed Repair attempts, and
 recovered trials are reported separately.
 
+With `--control codex`, each slot has a five-minute execution limit. A slot
+that reaches it is recorded as cancelled with `execution_deadline_exceeded`,
+and the files it left are still graded, so a timed-out attempt with a passing
+candidate is distinguishable from one that failed. Verification that cannot run
+because the whole campaign was stopped is recorded as not run, never as failed.
+
 New `incremental_build_repair` campaigns use verifier version 2, which also
 checks own-enumerable-key behavior for snapshot differences, graph membership,
 and build selection. Version 1 campaigns retain their original verifier and

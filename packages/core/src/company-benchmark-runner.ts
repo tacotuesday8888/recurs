@@ -75,6 +75,24 @@ export interface CompanyBenchmarkExecutionInput {
   readonly slot: CompanyBenchmarkTrialSlotV1;
   readonly allowance: CompanyBenchmarkExecutionAllowance;
   readonly signal?: AbortSignal;
+  /**
+   * Stops hidden verification; `signal` does when absent. A slot deadline
+   * aborts only `signal`, so the candidate it stopped is still checked.
+   */
+  readonly verificationSignal?: AbortSignal;
+}
+
+/** Abort reason for a slot that exceeded its declared execution limit. */
+export class CompanyBenchmarkDeadlineError extends Error {
+  constructor(readonly limitMs: number) {
+    super(`Company benchmark slot exceeded its ${limitMs} ms execution limit`);
+    this.name = "CompanyBenchmarkDeadlineError";
+  }
+}
+
+export function companyBenchmarkDeadlineExceeded(signal?: AbortSignal): boolean {
+  return signal?.aborted === true &&
+    signal.reason instanceof CompanyBenchmarkDeadlineError;
 }
 
 export interface CompanyBenchmarkExecutionAdapter {
