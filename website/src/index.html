@@ -46,13 +46,14 @@
     <section class="section wrap performance" id="performance" aria-labelledby="performance-title">
       <div class="section-head">
         <h2 id="performance-title">Built to stay responsive</h2>
-        <div class="section-aside"><p>Long sessions, large histories and interrupted work are profiled rather than assumed. Each figure compares the same workload before and after a fix.</p></div>
+        <div class="section-aside"><p>Long sessions, large histories and interrupted work are profiled rather than assumed. The figures compare the same workload before and after each fix; the chart runs three CLIs against one model server.</p></div>
       </div>
       <dl class="metrics">
         <div><dt>Streaming turn, long session</dt><dd><strong>124 ms</strong><span>median over 120 turns, down from 501–521 ms</span></dd></div>
         <div><dt>Loading a chat&rsquo;s agent history</dt><dd><strong>8 ms</strong><span>beside 30 other chats, down from 1.1 s</span></dd></div>
         <div><dt>Peak memory over 120 turns</dt><dd><strong>−32%</strong><span>physical footprint, about 270 vs 400 MiB</span></dd></div>
       </dl>
+      {{CLI_COMPARISON}}
       <p class="fine metrics-note">Deterministic local workloads on one macOS machine; not a model-quality benchmark. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/ACTIVE_SESSION_MEMORY.md">Method and raw measurements</a></p>
     </section>
     <section class="section wrap closing" aria-labelledby="closing-title">

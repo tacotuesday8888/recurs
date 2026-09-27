@@ -71,7 +71,10 @@ const validatedComparison = await buildProductComparison({
   render: renderProductComparison,
 });
 const productComparison = process.env.RECURS_SHOW_COMPARISON === "1" ? validatedComparison : "";
+const { renderCliComparison } = await import(new URL("../.build/cli-comparison.js", import.meta.url));
+const cliComparison = renderCliComparison(JSON.parse(await readFile(join(repository, "benchmarks/cli-resources/results.json"), "utf8")));
 const replacements = {
+  CLI_COMPARISON: cliComparison,
   PRODUCT_COMPARISON: productComparison,
   HISTORICAL_EVIDENCE_TITLE: productComparison ? "Earlier tests inside Recurs" : "What happened in our tests?",
   TASK_RESULTS: taskResults(summary),

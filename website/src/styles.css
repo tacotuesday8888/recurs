@@ -93,6 +93,27 @@ p { max-width: 68ch; }
 .metrics span { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); }
 .metrics-note { margin-top: 32px; }
 
+/* Speed comparison: every run on a linear axis from zero. */
+.speed-chart { margin: 56px 0 0; padding: 28px 28px 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.speed-chart figcaption h3 { font-size: 19px; }
+.speed-chart figcaption p { margin-top: 6px; color: var(--muted); font-size: 15px; }
+.speed-plot { margin-top: 26px; }
+.speed-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) 72px; gap: 16px; align-items: center; min-height: 40px; }
+.speed-name { font-size: 14px; color: var(--muted); }
+.speed-row.is-recurs .speed-name, .speed-row.is-recurs .speed-value { color: var(--ink); font-weight: 600; }
+.speed-value { text-align: right; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.speed-track { position: relative; height: 26px; }
+.speed-grid { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--line); }
+.speed-dot { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: var(--muted); opacity: .85; transform: translate(-50%, -50%); }
+.speed-row.is-recurs .speed-dot { background: var(--accent); opacity: 1; }
+.speed-median { position: absolute; top: 2px; bottom: 2px; width: 2px; background: var(--ink); transform: translateX(-50%); }
+.speed-axis { min-height: 22px; margin-top: 6px; border-top: 1px solid var(--line-strong); padding-top: 8px; }
+.speed-axis .speed-track { height: 14px; }
+.speed-tick { position: absolute; transform: translateX(-50%); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.speed-tick:first-child { transform: none; }
+.speed-unit { font-size: 12px; color: var(--faint); text-align: right; }
+.speed-chart > .fine { margin-top: 18px; }
+
 /* Closing */
 .closing { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: end; }
 .closing h2 { max-width: 16ch; }
@@ -141,6 +162,9 @@ summary { cursor: pointer; padding: 16px 20px; font-size: 14px; font-weight: 600
   .task-result { grid-template-columns: 1fr; gap: 20px; }
 }
 @media (max-width: 600px) {
+  .speed-chart { padding: 20px 16px 16px; }
+  .speed-row { grid-template-columns: 78px minmax(0, 1fr) 54px; gap: 10px; }
+  .speed-name, .speed-value { font-size: 12px; }
   .wrap { width: calc(100% - 32px); }
   .site-header { padding-block: 20px; }
   .brand .wordmark { width: 100px; }
