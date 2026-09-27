@@ -32,6 +32,7 @@ import {
   type RecursEvent,
   type SessionListEntry,
   type AgentExecution,
+  type AgentExecutionDetail,
 } from "@recurs/core";
 import {
   createHostInvocation,
@@ -1475,11 +1476,7 @@ export class RecursInteractiveShell {
     const session = runtimeSession(runtime);
     if (this.#transcript.text().length === 0 && runtime.state.type === "session" && typeof runtime.inspectExecution === "function") {
       const detail = await runtime.inspectExecution(runtime.state.session.id);
-      if (detail !== null) {
-        for (const message of detail.messages) {
-          this.#transcript.append(`\n${message.role === "user" ? "›" : message.role + ":"} ${message.content}\n`);
-        }
-      }
+      if (detail !== null) this.#transcript.append(restoredTranscriptText(detail));
     }
     if (runtime.state.type === "session" && isPinnedSessionState(runtime.state.session) && runtime.state.session.forkedFrom) {
       this.#transcript.append(`\nCopied from ${runtime.state.session.forkedFrom.sessionId}.\n`);
@@ -2045,6 +2042,39 @@ export class RecursInteractiveShell {
       if (completedExit?.type !== "new_project" || runtime.state.type !== "session") await runtime.close?.();
     }
   }
+}
+
+/**
+ * Reopened history in the live chat's form: prompts, replies, the tools each
+ * turn used, and turns that did not finish. Full tool output stays in the
+ * execution inspector and /export.
+ */
+export function restoredTranscriptText(detail: AgentExecutionDetail): string {
+  if (detail.transcript === undefined) {
+    return detail.messages.map((message) => `\n${message.role === "user" ? "›" : `${message.role}:`} ${message.content}\n`).join("");
+  }
+  const parts: string[] = [];
+  let tools: { name: string; failed: boolean }[] = [];
+  const flushTools = (): void => {
+    if (tools.length === 0) return;
+    const used = tools.filter((tool) => !tool.failed).map((tool) => tool.name);
+    const failed = tools.filter((tool) => tool.failed).map((tool) => tool.name);
+    parts.push(`\n${[
+      used.length === 0 ? null : `→ Used ${[...new Set(used)].join(", ")}`,
+      failed.length === 0 ? null : `✗ Failed ${[...new Set(failed)].join(", ")}`,
+    ].filter(Boolean).join(" · ")}\n`);
+    tools = [];
+  };
+  for (const entry of detail.transcript) {
+    if (entry.kind === "tool") { tools.push(entry); continue; }
+    flushTools();
+    if (entry.kind === "prompt") parts.push(`\n› ${entry.text}\n`);
+    else if (entry.kind === "response") parts.push(`\n${entry.text}\n`);
+    else if (entry.status === "cancelled") parts.push("\nTurn cancelled\n");
+    else parts.push(`\nTurn ${entry.status}: ${entry.text}\n`);
+  }
+  flushTools();
+  return parts.join("");
 }
 
 export function createRecursInteractiveShell(
