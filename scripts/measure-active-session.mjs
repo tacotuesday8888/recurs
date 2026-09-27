@@ -325,7 +325,7 @@ try {
   assert.equal(ui.exit(), 0);
 
   ui = await launch([]);
-  await ui.wait((screen) => screen.includes("Current chat"), "session launcher");
+  await ui.wait((screen) => screen.includes("turn-1") && screen.includes("CHATS"), "session launcher");
   await checkpoint(ui, "restart", 0);
   ui.child.write("\r");
   await ui.wait((screen) => screen.includes("/ CHAT") && screen.includes(`slow-${workload.cancellations}`), "reopened history");
