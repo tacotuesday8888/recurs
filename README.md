@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="docs/assets/recurs-wordmark.svg" alt="Recurs" width="420">
+  <img src="docs/assets/recurs-letter.svg" alt="Recurs" width="200">
 </p>
 
-<p align="center"><b>Coding agents in your terminal.</b><br>Choose the models, bound the team, and review every change.</p>
+<h1 align="center">Coding agents. Your terminal.</h1>
+
+<p align="center">Choose the models. Bound the team. Review every change.</p>
 
 <p align="center">
   <a href="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml"><img src="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/recurs"><img src="https://img.shields.io/npm/v/recurs/alpha?label=npm%20alpha&amp;color=f3a05b" alt="npm alpha"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-d96545.svg" alt="Apache 2.0"></a>
 </p>
-
-![Recurs terminal workflow](docs/assets/terminal-workflow.gif)
 
 ## Install
 
@@ -22,15 +22,15 @@ cd your-project
 recurs
 ```
 
-Connect a model, choose permissions, and start coding. Use your Codex login,
-a supported API provider, or a local model. [Connections](docs/PROVIDER_CAPABILITY_MATRIX.md)
+Connect a model, choose permissions, and start coding: your Codex login, a
+supported API provider, or a local model. [Connections](docs/PROVIDER_CAPABILITY_MATRIX.md)
 
 <details>
-<summary>Other installers</summary>
+<summary>Bun, Homebrew, or the release installer</summary>
 
 ```bash
-brew install tacotuesday8888/recurs/recurs
 bun install --global recurs@alpha
+brew install tacotuesday8888/recurs/recurs
 curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.11/install.sh | sh
 ```
 
@@ -39,40 +39,42 @@ Bun can install Recurs; Node.js runs it. Linux command isolation requires Bubble
 
 </details>
 
-## Code, review, continue
+## Every step stays in view
 
-- Follow progress and approve changes. Press **Ctrl+O** to expand code and tool details.
-- Browse files and review numbered diffs in unified or split view.
-- Rename, pin, archive, copy, and reopen chats.
-- Connect MCP servers and add skills.
+Recurs shows what each agent reads, edits and runs. Open a step, review the
+diff, and your draft is still there when you return.
+
+![Recurs terminal: a parser fix with approvals, applied edits and inspectable steps](docs/assets/terminal-workflow.gif)
+
+- **Choose the models.** Use one model for everything, or assign separate ones
+  to implement, review and repair. `recurs setup`
+- **Bound the team.** Set delegation depth, concurrency, request budgets and
+  permissions before work starts. `/agents`
+- **Review before it lands.** Workers build in isolated Git worktrees; an
+  independent reviewer checks their work before your session applies it. <kbd>Ctrl+T</kbd>
 
 <details>
-<summary>Open code review</summary>
+<summary>Code review and the agent team</summary>
 
-![Code review](docs/assets/terminal-diff.svg)
+![Unified and split code review](docs/assets/terminal-diff.svg)
+
+![Working agent team](docs/assets/terminal-v19-working.svg)
 
 </details>
 
-## Work with a team
-
-Choose models for implementation, review, and repair. Set delegation depth,
-concurrency, and permissions. Follow each running agent and inspect its work.
-
-![Agent team](docs/assets/terminal-v19-working.svg)
-
-**Ctrl+G** opens the team. **Ctrl+T** opens executions. **Enter** inspects an agent.
-[Team setup](docs/AUTO_MODEL_TEAMS.md)
-
 ## Built to stay responsive
 
-| Workload (same machine, before → after) | Result |
-| --- | --- |
-| Streaming turn, median over 120 turns | 501–521 ms → **124 ms** |
-| Loading a chat's agent history beside 30 other chats | 1.1 s → **8 ms** |
-| Peak physical memory over 120 turns | ~400 MiB → **~270 MiB** |
+| Recurs, same workload | Before | After |
+| --- | --- | --- |
+| Streaming turn, median over 120 turns | 501–521 ms | **124 ms** |
+| Loading a chat's agent history beside 30 other chats | 1.1 s | **8 ms** |
+| Peak physical memory over 120 turns | ~400 MiB | **~270 MiB** |
 
-Deterministic local workloads, not a model-quality benchmark.
-[Method and raw measurements](docs/ACTIVE_SESSION_MEMORY.md)
+Against one local model server with identical replies, Recurs finished a long
+streamed answer in **369 ms**, against 432 ms for Codex CLI and 495 ms for
+Claude Code (median of five runs; one of three measured workloads).
+[CLI comparison](benchmarks/cli-resources/README.md) ·
+[Memory method](docs/ACTIVE_SESSION_MEMORY.md)
 
 ## Reference
 
@@ -80,7 +82,7 @@ Deterministic local workloads, not a model-quality benchmark.
 [Appearance](docs/APPEARANCE.md) · [Benchmarks](benchmarks/product-comparison/README.md) ·
 [Contributing](CONTRIBUTING.md)
 
-Recurs is an alpha (`0.1.0-alpha.11`). Use `@alpha` for the current published
-package. This README follows the source; captures come from the terminal test
-walkthrough. [Release notes](CHANGELOG.md) · [Feature status](docs/FEATURE_STATUS.md) ·
+Recurs is an alpha (`0.1.0-alpha.11`); install with the `@alpha` tag. Captures
+come from the installed-package terminal walkthrough.
+[Release notes](CHANGELOG.md) · [Feature status](docs/FEATURE_STATUS.md) ·
 [Verification](docs/UI_VERIFICATION.md) · [Security](SECURITY.md) · [Privacy](PRIVACY.md)

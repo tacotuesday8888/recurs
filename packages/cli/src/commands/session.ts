@@ -219,7 +219,7 @@ function createChatCommands(dependencies: CommandDependencies): Command[] {
     async execute(args, context) {
       if (!dependencies.sessions) return message("Session storage is unavailable", "error");
       if (!["", "archived", "all"].includes(args.trim())) return message("Use /chats [archived|all]", "error");
-      const entries = (await dependencies.sessions.list()).filter((entry) => entry.cwd === context.session.cwd && (args.trim() === "all" || Boolean(entry.archived) === (args.trim() === "archived")));
+      const entries = (await dependencies.sessions.list()).filter((entry) => entry.cwd === context.session.cwd && entry.parentSessionId === undefined && (args.trim() === "all" || Boolean(entry.archived) === (args.trim() === "archived")));
       if (entries.length === 0) return message("No matching chats. Use /chats all to include archived chats.");
       if (!context.selectChoice) return message(entries.map((entry) => `${entry.id}  ${entry.pinned ? "[pinned] " : ""}${entry.title ?? entry.model}${entry.archived ? " [archived]" : ""}`).join("\n"));
       const id = await context.selectChoice("Chats · select to open", entries.map((entry) => ({ id: entry.id, label: `${entry.pinned ? "★ " : ""}${entry.title ?? entry.model}${entry.archived ? " · archived" : ""}`, detail: `${entry.updatedAt} · ${entry.cwd}`, current: entry.id === context.session.id })));

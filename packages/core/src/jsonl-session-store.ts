@@ -51,6 +51,8 @@ export interface SessionListEntry {
   version: 1 | 2;
   /** The first prompt, on one line and bounded, to tell untitled chats apart. */
   preview?: string;
+  /** Present for delegated child executions, which belong to their parent chat. */
+  parentSessionId?: string;
 }
 
 export interface CreatePinnedSessionOptions {
@@ -862,6 +864,7 @@ export class JsonlSessionStore {
         updatedAt: last.at,
         version: first.version,
         ...(preview === undefined ? {} : { preview }),
+        ...(first.version === 2 && typeof first.agent?.parentSessionId === "string" ? { parentSessionId: first.agent.parentSessionId } : {}),
       });
     }
     const metadata = new Map((await new FileSessionMetadataStore(path.join(await realpath(this.directory), "metadata")).list()).map((entry) => [entry.id, entry]));

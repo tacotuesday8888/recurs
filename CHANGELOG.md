@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Keep delegated child executions out of the chat list and `/chats`; they are
+  inspected from their parent chat. Terminal prompts use sentence case.
+- Align the README with the website and terminal: the same letter, headline,
+  line and section order, a 2x-resolution walkthrough GIF, and regenerated
+  terminal captures.
 - Name untitled chats by their first prompt and show local times on the chat
   list, instead of "Recent chat 2" and UTC stamps. Remove the duplicate
   RECURS label under the chat-home letter. The terminal opening now uses the

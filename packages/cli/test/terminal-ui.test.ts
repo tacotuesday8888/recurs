@@ -1561,7 +1561,7 @@ describe("RecursInteractiveShell", () => {
     terminal.input?.("\u001b[200~ask\u001b[201~");
     terminal.input?.("\r");
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(terminal.output).toContain("╭─ APPROVAL REQUIRED");
+    expect(terminal.output).toContain("╭─ Approval required");
     expect(terminal.output).toContain("Apply the reviewed change? [y/N]");
     terminal.input?.("yes");
     terminal.input?.("\r");

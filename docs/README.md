@@ -2,6 +2,8 @@
 
 Current published alpha: `0.1.0-alpha.11`. Current documents:
 
+- [Product finishing pass](PRODUCT_FINISH.md) — September 2026 reliability,
+  benchmark-integrity, website, README and terminal changes with their evidence.
 - [Active-session memory](ACTIVE_SESSION_MEMORY.md) — cause of terminal memory
   growth while streaming, the fix, and paired before/after measurements.
 - [Quality stress follow-up](QUALITY_STRESS_FOLLOWUP.md) — benchmark corrections,

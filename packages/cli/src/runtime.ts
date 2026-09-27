@@ -235,8 +235,9 @@ export class RecursRuntime {
 
   async listSessions() {
     const cwd = this.#workspace?.cwd ?? this.session.cwd;
+    // Delegated child executions are inspected from their parent chat.
     return (await this.dependencies.sessions.list()).filter((entry) =>
-      entry.cwd === cwd
+      entry.cwd === cwd && entry.parentSessionId === undefined
     );
   }
 

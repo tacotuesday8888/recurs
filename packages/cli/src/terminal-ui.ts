@@ -1125,7 +1125,7 @@ export class ChatComponent extends Container {
     text: string,
     options: readonly string[],
     signal?: AbortSignal,
-    label = "INPUT REQUIRED",
+    label = "Input required",
   ): Promise<string | null> {
     if (signal?.aborted === true) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -1181,7 +1181,7 @@ export class ChatComponent extends Container {
           (option, index) =>
             `  ${index + 1}. ${sanitizeTerminalText(option, { multiline: false })}`,
         ),
-        "╰─ ENTER TO CONTINUE · ESC CANCEL",
+        "╰─ Enter to answer · Esc to cancel",
       ].join("\n"));
       this.editor.setText("");
     }
@@ -1750,7 +1750,7 @@ export class RecursInteractiveShell {
         `${message} [y/N]`,
         [],
         runtime.currentSignal(),
-        "APPROVAL REQUIRED",
+        "Approval required",
       );
       return answer?.trim().toLowerCase() === "y" ||
         answer?.trim().toLowerCase() === "yes";
@@ -1760,7 +1760,7 @@ export class RecursInteractiveShell {
         `Allow ${intent.category} access to ${intent.resource}?`,
         ["yes — once", "always — this session", "deny"],
         runtime.currentSignal(),
-        "PERMISSION REQUIRED",
+        "Permission required",
       );
       if (answer === null) return "deny";
       if (/^[1-3]$/u.test(answer.trim())) {
@@ -1772,7 +1772,7 @@ export class RecursInteractiveShell {
     });
     runtime.setUserInputHandler?.(async (request, signal) =>
       selectedAnswer(
-        await ask(request.question, request.options, signal, "AGENT QUESTION") ?? "",
+        await ask(request.question, request.options, signal, "Agent question") ?? "",
         request.options,
       )
     );
