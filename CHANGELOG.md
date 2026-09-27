@@ -4,6 +4,12 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Opening a chat, inspecting its executions, and cancelling a child no longer
+  read every other chat's history in full: the execution list identifies the
+  conversation's sessions from their first records and validates only those.
+  With 30 unrelated 5.9 MB chats in a workspace, listing fell from about 1.1 s
+  to 8 ms locally. An unrelated log damaged after its first record no longer
+  triggers an incomplete-history notice.
 - Stop redoing whole-conversation work for every streamed chunk and frame:
   turns render separately and settled turns reuse their layout. Streaming turns
   are about four times faster in a 120-turn local workload, with a lower peak
