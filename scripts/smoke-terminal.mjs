@@ -321,10 +321,10 @@ try {
   assert.equal(ui.exit(), 0);
   ui.terminal.dispose();
   const resumed = await launch([]);
-  await resumed.wait((screen) => screen.includes("Current chat"), "session launcher");
+  await resumed.wait((screen) => screen.includes("Review parser.ts"), "session launcher");
   for (const [columns, rows] of [[32, 8], [80, 24], [40, 10], [100, 30]]) {
     resumed.process.resize(columns, rows); resumed.terminal.resize(columns, rows);
-    await resumed.wait((screen) => screen.includes("Current chat"), `home selection at ${columns}x${rows}`);
+    await resumed.wait((screen) => screen.includes("Review parser.ts"), `home selection at ${columns}x${rows}`);
   }
   resumed.process.write("\r");
   await resumed.wait((screen) => screen.includes("Inspection line 64"), "durable transcript reopening");
@@ -332,12 +332,12 @@ try {
   await resumed.wait(() => resumed.exit() !== undefined, "resumed exit");
   resumed.terminal.dispose();
   const colorful = await launch([], { NO_COLOR: undefined, RECURS_REDUCED_MOTION: "1" });
-  await colorful.wait((screen) => screen.includes("Current chat"), "colored launcher");
+  await colorful.wait((screen) => screen.includes("Review parser.ts"), "colored launcher");
   colorful.process.write("\r");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
   assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0xffffff);
   colorful.process.write("/new\r");
-  await colorful.wait((screen) => screen.includes("/ CHAT") && screen.includes("One task. A team you control.") && !screen.includes("Inspection line 64"), "fresh colored conversation");
+  await colorful.wait((screen) => screen.includes("/ CHAT") && screen.includes("Choose the models. Bound the team.") && !screen.includes("Inspection line 64"), "fresh colored conversation");
   colorful.process.write("Review parser.ts\r");
   await colorful.wait((screen) => screen.includes("Ready for review.") && screen.includes("Parent · ready"), "colored Markdown and code");
   await captureColorScreen(colorful, "light");
@@ -356,11 +356,11 @@ try {
   colorful.process.write("\u001b");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "leave color palette");
   colorful.process.write("/new\r");
-  await colorful.wait((screen) => screen.includes("One task. A team you control."), "native opening");
+  await colorful.wait((screen) => screen.includes("Choose the models. Bound the team."), "native opening");
   await colorful.wait((screen) => screen.includes("Local ·") && screen.includes("changed · /workspace"), "opening branch context");
   await captureColorScreen(colorful, "opening");
   colorful.process.write("Draft before sending");
-  await colorful.wait((screen) => screen.includes("Draft before sending") && screen.includes("One task. A team you control."), "opening stays while drafting");
+  await colorful.wait((screen) => screen.includes("Draft before sending") && screen.includes("Choose the models. Bound the team."), "opening stays while drafting");
   await captureColorScreen(colorful, "opening-draft");
   colorful.process.write("\u0015");
   colorful.process.write("/permissions ask\r");

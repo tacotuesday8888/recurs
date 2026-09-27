@@ -4,6 +4,11 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Name untitled chats by their first prompt and show local times on the chat
+  list, instead of "Recent chat 2" and UTC stamps. Remove the duplicate
+  RECURS label under the chat-home letter. The terminal opening now uses the
+  same line as the website and README: "Choose the models. Bound the team.
+  Review every change."
 - Reopened chats read like the live conversation: prompts, replies, the tools
   each turn used, and turns that were cancelled, failed, or interrupted. They
   previously showed raw `assistant:`/`tool:` lines, dumped full tool output, and

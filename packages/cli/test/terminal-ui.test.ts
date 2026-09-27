@@ -209,7 +209,7 @@ describe("LaunchComponent", () => {
     const component = new LaunchComponent({ workspace: "project", currentSessionId: "chat-0", sessions }, { openSession() {}, newProject() {}, quit() {}, refresh() {} }, { rows: () => 40, frame: () => 0, theme: createTerminalTheme(process.stdout, { colorEnabled: true }) });
     const rows = component.render(100);
     expect(rows).toHaveLength(40);
-    expect(rows.findIndex(row => row.includes("/ CHATS"))).toBe(22);
+    expect(rows.findIndex(row => row.includes("/ CHATS"))).toBe(21);
     expect(rows.slice(0, 20).filter(row => stripVTControlCharacters(row).trim()).length).toBeGreaterThanOrEqual(14);
     for (let i = 0; i < 29; i++) component.handleInput("\u001b[B");
     expect(component.render(100).join("\n")).toContain("> Saved work 29");
