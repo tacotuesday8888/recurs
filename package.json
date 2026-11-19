@@ -1,6 +1,6 @@
 {
   "name": "recurs",
-  "version": "0.1.0-alpha.11",
+  "version": "0.1.0-alpha.12",
   "description": "Open-source coding-agent teams you control, from model routes to delegation depth",
   "license": "Apache-2.0",
   "type": "module",
@@ -77,11 +77,11 @@
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
     "@earendil-works/pi-tui": "0.83.0",
-    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/client": "2.3.1",
     "typescript": "6.0.3",
     "ws": "8.21.3",
     "yaml": "2.9.1",
-    "zod": "4.6.2"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
@@ -90,10 +90,10 @@
     "@types/node": "22.20.2",
     "@types/ws": "8.18.1",
     "@xterm/headless": "6.0.0",
-    "eslint": "10.10.0",
+    "eslint": "10.15.0",
     "rolldown": "1.2.8",
-    "typescript-eslint": "8.70.0",
-    "vitest": "4.1.11"
+    "typescript-eslint": "8.73.0",
+    "vitest": "4.1.12"
   },
   "optionalDependencies": {
     "@lydell/node-pty": "1.1.0"

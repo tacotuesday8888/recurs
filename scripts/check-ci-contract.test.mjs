@@ -49,7 +49,7 @@ test("the complete Linux gate runs on the exact declared minimum Node version", 
   const minimumNode = match[1];
   const verify = ci.jobs?.verify;
 
-  assert.equal(verify?.["runs-on"], "ubuntu-latest");
+  assert.equal(verify?.["runs-on"], "ubuntu-24.04");
   assert.equal(
     String(actionStep(verify, "actions/setup-node")?.with?.["node-version"]),
     minimumNode,
