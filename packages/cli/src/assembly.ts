@@ -1242,7 +1242,7 @@ export async function createStandaloneRuntime(
           commandProvider: environmentConnection.provider,
           createProvider: () => environmentConnection.provider,
         }
-    : configuredConnection === null
+    : configuredConnection === null || resumeSessionId !== undefined
       ? undefined
       : await backendForConnection(
           configuredConnection,

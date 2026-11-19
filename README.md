@@ -63,9 +63,10 @@ Always** for permissions, then **Start coding**. If your server uses a custom
 port, pass its loopback URL and model ID to `recurs setup local`.
 [First-run guide](docs/CLI.md#first-run)
 
-The published `0.1.0-alpha.11` still works with local models. Its bundled
-policy reviews for Codex, Copilot, and saved API-key connections expired in
-October 2026. Those connection paths require a release with updated reviews.
+The published `0.1.0-alpha.11` works with local models. Its hosted reviews
+expired in October 2026. The `0.1.0-alpha.12` source candidate renews nine
+hosted routes, including Codex with ChatGPT, Copilot, and the OpenAI,
+Anthropic and Gemini APIs. [Provider matrix](docs/PROVIDER_CAPABILITY_MATRIX.md)
 
 Send this in the chat to explore your project in read-only Plan mode.
 
@@ -75,7 +76,9 @@ Send this in the chat to explore your project in read-only Plan mode.
 
 Open the files it names or ask a follow-up. When you're ready to make a change,
 send `/plan exit` and describe the edit. To pick up later, run `recurs` in the
-same project and select your saved chat.
+same project and select your saved chat. In the alpha.12 candidate,
+`recurs --continue` reopens your most recent active chat and `/` on the home
+screen searches active and archived chats.
 
 ## Every step stays in view
 
@@ -120,7 +123,8 @@ Claude Code (median of five runs; one of three measured workloads).
 [Appearance](docs/APPEARANCE.md) · [Benchmarks](benchmarks/product-comparison/README.md) ·
 [Contributing](CONTRIBUTING.md)
 
-Recurs is an alpha (`0.1.0-alpha.11`); install with the `@alpha` tag. Captures
-come from the installed-package terminal walkthrough.
+This source describes `0.1.0-alpha.12`. Install the public preview with the
+`@alpha` tag. The [public alpha status](docs/PUBLIC_ALPHA.md) lists the verified
+package and installation channels. Captures come from the installed terminal.
 [Release notes](CHANGELOG.md) · [Feature status](docs/FEATURE_STATUS.md) ·
 [Verification](docs/UI_VERIFICATION.md) · [Security](SECURITY.md) · [Privacy](PRIVACY.md)

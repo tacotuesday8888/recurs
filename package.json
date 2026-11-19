@@ -23,7 +23,7 @@
   "bugs": {
     "url": "https://github.com/tacotuesday8888/recurs/issues"
   },
-  "homepage": "https://github.com/tacotuesday8888/recurs#readme",
+  "homepage": "https://tacotuesday8888.github.io/recurs/",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/",

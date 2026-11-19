@@ -1,6 +1,7 @@
 # Recurs Documentation
 
-Current published alpha: `0.1.0-alpha.11`. Current documents:
+The documentation covers the `0.1.0-alpha.12` source candidate. Installation
+commands use the published `0.1.0-alpha.11` preview. [Public alpha status](PUBLIC_ALPHA.md)
 
 - [Product finishing pass](PRODUCT_FINISH.md) — September 2026 reliability,
   benchmark-integrity, website, README and terminal changes with their evidence.

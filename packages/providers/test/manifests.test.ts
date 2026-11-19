@@ -708,14 +708,15 @@ describe("bundled provider manifests", () => {
 
   it("ships current, sourced policy evidence and typed conditional gates", () => {
     for (const manifest of BUNDLED_PROVIDER_MANIFESTS) {
-      expect(manifest.usagePolicy.reviewedAt).toBe(
+      const original = manifest.usagePolicy.previousReviews?.[0] ?? manifest.usagePolicy;
+      expect(original.reviewedAt).toBe(
         manifest.id === "openai-codex-chatgpt"
           ? "2026-07-24"
           : manifest.id === "xai-api"
             ? "2026-07-21"
             : REVIEWED_AT,
       );
-      expect(manifest.usagePolicy.expiresAt).toBe(
+      expect(original.expiresAt).toBe(
         manifest.id === "openai-codex-chatgpt"
           ? "2026-10-24T00:00:00.000Z"
           : manifest.id === "xai-api"
@@ -939,6 +940,14 @@ describe("validateProviderManifest", () => {
     expect(() => validateProviderManifest(invalidDate)).toThrow(
       /review date.*real calendar date/i,
     );
+  });
+
+  it("rejects overlapping provider review windows", () => {
+    const invalid = structuredClone(bundled("openai-api"));
+    invalid.usagePolicy.previousReviews = [{
+      reviewedAt: "2026-10-01", expiresAt: "2026-11-19T00:00:00.000Z",
+    }];
+    expect(() => validateProviderManifest(invalid)).toThrow(/ordered and disjoint/u);
   });
 
   it("requires conditional manifests to default to denied", () => {

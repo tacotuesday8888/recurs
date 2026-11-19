@@ -7,6 +7,7 @@ import {
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import { afterEach, describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 import { GitHubCopilotRuntimeError } from "@recurs/runtimes";
 import { githubCopilotSdkAddonPrefix } from "@recurs/runtimes";
 
@@ -130,6 +131,7 @@ describe("GitHub Copilot connection dispatch", () => {
   });
 
   it("verifies fresh auth, optional model effort, and the exact current policy", async () => {
+    useProviderFixtureClock("2026-08-07T00:00:00.000Z");
     const connection = await savedConnection();
     const result = await verifyGitHubCopilotSubscriptionConnection(
       connection,
@@ -154,6 +156,7 @@ describe("GitHub Copilot connection dispatch", () => {
   });
 
   it("rejects a stale billing disclosure before inspecting the SDK", async () => {
+    useProviderFixtureClock("2026-08-07T00:00:00.000Z");
     const connection = await savedConnection();
     let inspected = false;
     const stale: DelegatedConnectionRecord = {

@@ -1,9 +1,10 @@
 # Recurs Feature Status
 
-**Published alpha:** `0.1.0-alpha.11`. **Audited:** 2026-09-09 against source,
-exported package surfaces, CLI assembly, durable contracts/stores, provider
-manifests, automated tests and the public installed artifact. Exact evidence is
-recorded in [Product polish](PRODUCT_POLISH.md).
+The source candidate is `0.1.0-alpha.12`. It adds interactive
+`recurs --continue`, exact chat reopening with `recurs --resume <session-id>`,
+and search across active and archived parent chats. The public preview remains
+`0.1.0-alpha.11`, audited against the installed artifact on September 9, 2026.
+See [Product polish](PRODUCT_POLISH.md) for that release’s evidence.
 
 The [September 20 quality audit](PRODUCT_QUALITY_AUDIT.md) records current
 benchmark limitations, measured startup memory improvements, terminal/UI fixes,
@@ -49,7 +50,7 @@ context, not a product commitment.
 | Model selection | Local interactive `/model` offers a saved-connection picker with confirmation/revalidation and a fresh session; non-picker hosts retain a text list. Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
 | Codex subscription | Exact reviewed user-installed Codex CLI, official app-server login/discovery/execution, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
-| Coding plans | Kimi Code and OpenCode Go use their documented fixed coding endpoints; Alibaba Coding Plan additionally requires a current-plan attestation and is rechecked for local/manual/user-present CLI use on every run; MiniMax Token Plan requires explicit prepaid-credit fallback acknowledgement. Z.ai GLM Coding Plan remains blocked pending written provider approval. |
+| Coding plans | The alpha.12 candidate renews Alibaba Coding Plan for local, manual, user-present CLI use with an active-plan acknowledgement. Kimi Code, OpenCode Go and MiniMax Token Plan remain closed after the November review. Z.ai GLM Coding Plan still requires written approval. [Provider matrix](PROVIDER_CAPABILITY_MATRIX.md) |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
 | Lifecycle hooks | The local CLI runs user-private, identity-bound executable hooks from a bounded asynchronous queue. They receive sanitized session/turn/tool/permission/agent/team envelopes in deterministic order and are observe-only, time/output bounded, read-only, network-denied, and unavailable to project configuration. Hook outcomes appear in text/JSONL; ACP and aggregate JSON do not claim live hook projection. |
 | Permission rules | User-private rules match one canonical workspace, category, resource, and risk exactly, with redacted resource digests and no repository configuration or wildcard expansion. Persistent allows are root-only; credential denial, destructive-allow rejection, Plan mode, profile/tool policy, parent ceilings, path guards, and OS containment remain above the rule layer. |

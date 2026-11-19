@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   FileConnectionRegistry,
@@ -77,6 +78,7 @@ describe("standalone company onboarding assembly", () => {
   });
 
   it("runs Codex formation through the same restricted Plan-mode host tools", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const root = await realpath(
       await mkdtemp(path.join(tmpdir(), "recurs-codex-company-assembly-")),
     );

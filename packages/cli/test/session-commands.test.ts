@@ -1594,6 +1594,9 @@ describe("chat organization", () => {
       { id: "request", role: "user", content: "Repair the \x1b[31mparser\x1b[0m" },
       { id: "answer", role: "assistant", content: "Done", toolCalls: [] },
     ]);
+    await writeFile(path.join(sessions.directory, "legacy-chat.jsonl"), JSON.stringify({
+      version: 1, type: "session_created", sessionId: "legacy-chat", at, cwd, model: "legacy-model",
+    }) + "\n", { mode: 0o600 });
     const registry = createCommandRegistry({ sessions });
     expect(await registry.execute("/chats", ctx)).toMatchObject({
       text: expect.stringContaining("older  Repair the parser"),
@@ -1604,6 +1607,10 @@ describe("chat organization", () => {
     expect(choose).toHaveBeenCalledWith("Chats · select to open", expect.arrayContaining([
       expect.objectContaining({ id: "older", label: "Repair the parser" }),
     ]));
+    expect(choose).not.toHaveBeenCalledWith(expect.any(String), expect.arrayContaining([
+      expect.objectContaining({ id: "legacy-chat" }),
+    ]));
+    expect(await registry.execute("/resume", ctx)).toMatchObject({ text: expect.stringContaining("legacy-chat") });
     expect(ctx.session.id).toBe("older");
   });
 

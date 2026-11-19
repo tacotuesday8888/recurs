@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -193,6 +193,10 @@ describe("RecursRuntime", () => {
       cwd: other,
       backend: testBackendPin(),
     });
+    await writeFile(path.join(sessions.directory, "legacy-chat.jsonl"), JSON.stringify({
+      version: 1, type: "session_created", sessionId: "legacy-chat", at: testAt,
+      cwd: directory, model: "legacy-model",
+    }) + "\n", { mode: 0o600 });
     const childWorkspace = path.join(directory, "child-worktree");
     await sessions.createPinnedSession({
       id: "child-chat", at: testAt, cwd: childWorkspace, backend: testBackendPin(),

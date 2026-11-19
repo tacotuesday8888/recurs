@@ -235,9 +235,9 @@ export class RecursRuntime {
 
   async listSessions() {
     const cwd = this.#workspace?.cwd ?? this.session.cwd;
-    // Delegated child executions are inspected from their parent chat.
+    // The launcher can reopen pinned parent chats. Legacy text history stays accessible via /resume.
     return (await this.dependencies.sessions.list()).filter((entry) =>
-      entry.cwd === cwd && entry.parentSessionId === undefined
+      entry.cwd === cwd && entry.version === 2 && entry.parentSessionId === undefined
     );
   }
 

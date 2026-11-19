@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   EnvironmentProviderError,
@@ -18,6 +19,7 @@ describe("environment provider resolution", () => {
   });
 
   it("creates a non-secret, fingerprinted provider configuration", async () => {
+    useProviderFixtureClock("2026-09-01T00:00:00.000Z");
     const key = "private-environment-key";
     const resolved = await resolveEnvironmentProvider({
       RECURS_PROVIDER: "openrouter-api",
@@ -39,6 +41,7 @@ describe("environment provider resolution", () => {
   });
 
   it("selects the Anthropic Messages adapter from reviewed manifest protocol", async () => {
+    useProviderFixtureClock("2026-11-19T00:00:00.000Z");
     const key = "anthropic-environment-key";
     const resolved = await resolveEnvironmentProvider({
       RECURS_PROVIDER: "anthropic-api",
@@ -57,6 +60,15 @@ describe("environment provider resolution", () => {
     });
     expect(JSON.stringify(resolved)).not.toContain(key);
   });
+
+  it.each(["2026-11-01T00:00:00.000Z", "2027-02-18T00:00:00.000Z"])(
+    "rejects an ephemeral API route outside both reviewed windows at %s", async (at) => {
+      useProviderFixtureClock(at);
+      await expect(resolveEnvironmentProvider({
+        RECURS_PROVIDER: "openai-api", RECURS_MODEL: "fixture", RECURS_API_KEY: "test-only",
+      })).rejects.toThrow("requires a current review");
+    },
+  );
 
   it("fails closed for partial, invalid, or unsupported selection", async () => {
     for (const environment of [

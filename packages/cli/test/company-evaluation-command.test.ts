@@ -11,6 +11,7 @@ import {
 } from "@recurs/app";
 import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
 import { afterEach, describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   copyConfiguredEvaluationConnection,
@@ -102,6 +103,7 @@ function delegatedAppServer(): DelegatedConnectionRecord {
 
 describe("configured company evaluation connection selection", () => {
   it("copies one exact non-primary environment connection without mutating the source", async () => {
+    useProviderFixtureClock(AT);
     const source = await temporaryRoot("recurs-eval-source-");
     const target = await temporaryRoot("recurs-eval-target-");
     const configured = await setupEnvironmentConnection(source, {

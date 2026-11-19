@@ -31,6 +31,9 @@ import {
 } from "@recurs/cli";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { useProviderFixtureClock } from "../support/provider-fixture-clock.js";
+
+const POLICY_FIXTURE_AT = "2026-08-08T12:00:00.000Z";
 const AT = "2026-07-11T00:00:00.000Z";
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -162,6 +165,7 @@ function codexConnection(): DelegatedConnectionRecord {
 
 describe("provider onboarding end to end", () => {
   it("guides a fresh user from reviewed BYOK discovery into a pinned session", async () => {
+    useProviderFixtureClock(POLICY_FIXTURE_AT);
     const root = await temporaryRoot("recurs-guided-byok-e2e-");
     const project = path.join(root, "project");
     const dataDirectory = path.join(root, "data");
@@ -265,6 +269,7 @@ describe("provider onboarding end to end", () => {
   });
 
   it("configures, selects, and runs a saved public BYOK provider without persisting its key", async () => {
+    useProviderFixtureClock(POLICY_FIXTURE_AT);
     const root = await temporaryRoot("recurs-byok-e2e-");
     const project = path.join(root, "project");
     const dataDirectory = path.join(root, "data");
@@ -324,6 +329,7 @@ describe("provider onboarding end to end", () => {
   });
 
   it("lists the catalog and migrates a redacted local account without creating a session", async () => {
+    useProviderFixtureClock(POLICY_FIXTURE_AT);
     const dataDirectory = await temporaryRoot("recurs-provider-e2e-");
     const legacy = legacyLocalConnectionPath(dataDirectory);
     await mkdir(path.dirname(legacy), { recursive: true, mode: 0o700 });
@@ -406,6 +412,7 @@ describe("provider onboarding end to end", () => {
   });
 
   it("selects a Plan-only Codex pin and rejects piped prompts before starting it", async () => {
+    useProviderFixtureClock(POLICY_FIXTURE_AT);
     const root = await temporaryRoot("recurs-codex-pin-e2e-");
     const project = path.join(root, "project");
     const dataDirectory = path.join(root, "data");

@@ -18,6 +18,14 @@ import { validateProviderManifest } from "./manifest-validator.js";
 const REVIEWED_AT = "2026-07-11";
 const EXPIRES_AT = "2026-10-11T00:00:00.000Z";
 
+// Renewed against the provider sources recorded in docs/research/provider-review-2026-11.md.
+// Only identical access, endpoint, and billing rules can keep the existing revision.
+const NOVEMBER_REVIEW = new Set([
+  "openai-api", "openai-codex-chatgpt", "anthropic-api", "github-copilot-subscription",
+  "google-gemini-api", "xai-api", "alibaba-model-studio-api", "alibaba-coding-plan",
+  "zai-api", "ollama-local", "lm-studio-local",
+]);
+
 interface ManifestDefinition {
   id: string;
   displayName: string;
@@ -80,6 +88,13 @@ function claimRule(
 function manifest(definition: ManifestDefinition): ProviderManifest {
   const activationProfiles: Readonly<Record<string, ProviderActivationProfileId>> =
     BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS;
+  const original = {
+    reviewedAt: definition.reviewedAt ?? REVIEWED_AT,
+    expiresAt: definition.expiresAt ?? EXPIRES_AT,
+  };
+  const review = NOVEMBER_REVIEW.has(definition.id)
+    ? { reviewedAt: "2026-11-18", expiresAt: "2027-02-18T00:00:00.000Z", previousReviews: [original] }
+    : original;
   const candidate: ProviderManifest = {
     schemaVersion: 2,
     id: definition.id,
@@ -104,9 +119,8 @@ function manifest(definition: ManifestDefinition): ProviderManifest {
     supportStatus: definition.supportStatus,
     runnable: definition.runnable,
     usagePolicy: {
-      revision: `${definition.id}-${definition.reviewedAt ?? REVIEWED_AT}`,
-      reviewedAt: definition.reviewedAt ?? REVIEWED_AT,
-      expiresAt: definition.expiresAt ?? EXPIRES_AT,
+      revision: `${definition.id}-${original.reviewedAt}`,
+      ...review,
       defaultDecision: definition.supportStatus === "supported" ? "allowed" : "denied",
       rules: definition.rules ?? [],
       officialRuntimeRequired: definition.adapterKind === "agent_runtime",

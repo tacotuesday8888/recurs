@@ -223,6 +223,7 @@ function createChatCommands(dependencies: CommandDependencies): Command[] {
       if (!["", "archived", "all"].includes(scope)) return message("Use /chats [archived|all]", "error");
       const entries = (await dependencies.sessions.list()).filter((entry) =>
         entry.cwd === context.session.cwd && entry.parentSessionId === undefined &&
+        (!context.selectChoice || entry.version === 2) &&
         (scope === "all" || Boolean(entry.archived) === (scope === "archived")),
       );
       if (entries.length === 0) return message("No matching chats. Use /chats all to include archived chats.");

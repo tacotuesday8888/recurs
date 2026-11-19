@@ -62,6 +62,7 @@ import {
 import { ScriptedProvider } from "@recurs/providers";
 import type { PtyDriver } from "@recurs/tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   RuntimeError,
@@ -225,6 +226,7 @@ afterEach(async () => {
 
 describe("standalone assembly without a provider", () => {
   it("loads a delegated Codex record into a Plan-only immutable runtime pin", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-codex-assembly-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -330,6 +332,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("routes a freshly persisted reviewed Copilot record into Act + Plan", async () => {
+    useProviderFixtureClock("2026-08-08T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-copilot-assembly-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -394,6 +397,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("rejects stale Copilot billing metadata before runtime construction", async () => {
+    useProviderFixtureClock("2026-08-08T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-copilot-stale-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1512,6 +1516,7 @@ describe("standalone assembly without a provider", () => {
     primaryBillingSource,
     endpoint,
   }) => {
+    useProviderFixtureClock("2026-09-01T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), `recurs-${providerId}-assembly-`));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1795,6 +1800,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("runs a saved BYOK account only with the exact configured environment credential", async () => {
+    useProviderFixtureClock("2026-07-19T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-byok-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1875,6 +1881,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("confines an Alibaba Coding Plan connection to its approved interactive context", async () => {
+    useProviderFixtureClock("2026-07-21T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-alibaba-plan-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1964,6 +1971,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("pins and reports a saved OpenAI reasoning effort without changing the credential boundary", async () => {
+    useProviderFixtureClock("2026-07-20T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-effort-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -2193,6 +2201,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("reconciles a prepared apply before stale provider policy blocks startup", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const root = await realpath(
       await mkdtemp(path.join(tmpdir(), "recurs-team-restart-")),
     );
@@ -2784,6 +2793,16 @@ describe("standalone assembly without a provider", () => {
         connectionRevision: (await registry.read()).revision,
       },
     });
+
+    await registry.commit((await registry.read()).revision, (draft) => {
+      draft.connections.push({ ...structuredClone(codexConnection), policyRevision: "obsolete" });
+      draft.primaryConnectionId = codexConnection.id;
+    });
+    const reopened = await createStandaloneRuntime(
+      { async emit() {} }, { cwd: workspace, dataDirectory, resumeSessionId: firstRuntime.session.id },
+    );
+    expect(reopened.session.backend.pin).toEqual(firstPin);
+    await reopened.close();
 
     const original = await registry.read();
     await registry.commit(original.revision, (draft) => {
@@ -3581,6 +3600,7 @@ describe("standalone assembly without a provider", () => {
   });
 
   it("routes foreground company roles across Sol, Terra, and Luna subscription models", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const root = await mkdtemp(path.join(tmpdir(), "recurs-codex-company-route-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -3941,6 +3961,7 @@ describe("standalone assembly without a provider", () => {
 
 
 it("changes Codex effort through a new immutable connection without overwriting another policy", async () => {
+  useProviderFixtureClock("2026-07-25T00:00:00.000Z");
   const root = await mkdtemp(path.join(tmpdir(), "recurs-effort-switch-"));
   directories.push(root);
   const original = codexAppServerConnection("parent-medium", "gpt-5.6-luna", "medium");

@@ -1,7 +1,16 @@
 # Public alpha status
 
-**0.1.0-alpha.11 is published.** npm `alpha` selects `0.1.0-alpha.11`;
-`latest` remains `0.1.0-alpha.2` (verified September 9, 2026). The
+**The source candidate is `0.1.0-alpha.12`.** It adds direct chat reopening,
+search across active and archived chats, and a guided first session with a local
+model. Its new review window covers nine hosted routes and two local runtimes
+from November 18, 2026 until February 18, 2027 at 00:00 UTC. Eight hosted
+routes remain closed. The provider review used public documentation and made
+no authenticated requests. [Provider review](research/provider-review-2026-11.md)
+· [Changelog](../CHANGELOG.md)
+
+**The published preview is `0.1.0-alpha.11`.** npm `alpha` selects
+`0.1.0-alpha.11` and `latest` selects `0.1.0-alpha.2` (verified November 18,
+2026). The
 [GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.11)
 contains the attested package, installer, formula, and checksums. See the
 [product polish release record](PRODUCT_POLISH.md) for exact source, integrity,
@@ -16,11 +25,13 @@ the same npm archive but Node runs the CLI. The published release includes
 a checksum-verifying curl installer and Homebrew formula from those exact bytes.
 The Homebrew tap update passed its install/test gate and is merged.
 
-A normal installation does not download Codex or Copilot. Their supported
+For alpha.11, start an Ollama or LM Studio server with a tool-capable model.
+Alpha.11’s hosted reviews expired in October 2026. A normal installation does
+not download Codex or Copilot. Their supported
 vendor runtimes are supplied separately. See the [provider matrix](PROVIDER_CAPABILITY_MATRIX.md)
 and [CLI guide](CLI.md).
 
-## What this release changes
+## What shipped in alpha.11
 
 Persistent terminal themes and custom colors, an interactive saved-model picker,
 explicit specialist route previews, clearer team-limit editing, new-chat model
