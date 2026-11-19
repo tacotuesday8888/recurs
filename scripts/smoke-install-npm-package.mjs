@@ -1206,6 +1206,15 @@ try {
     "An installed fresh one-shot request inherited prior visible context.",
   );
 
+  const { stdout: continued } = await execFileAsync(
+    executable, ["run", "/status", "--continue", "--format", "json"],
+    { cwd: workspaceDirectory, encoding: "utf8", env: environment },
+  );
+  assert(
+    JSON.parse(continued).sessionId === freshSessionId,
+    "The packaged --continue flag must reopen the most recent chat.",
+  );
+
   const stdinRun = await runInstalledWithInput(
     executable,
     [

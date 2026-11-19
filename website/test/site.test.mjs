@@ -1,4 +1,4 @@
-/* global URL, structuredClone */
+/* global URL, process, structuredClone */
 import assert from "node:assert/strict";
 import { readFile, access } from "node:fs/promises";
 import test from "node:test";
@@ -25,6 +25,20 @@ test("local asset links resolve and captures match repository sources byte for b
     assert.deepEqual(await readFile(new URL(`assets/${name}`, root)), await readFile(new URL(`../../docs/assets/${name}`, import.meta.url)));
   }
 });
+test("the 404 resolves its home link and assets from any project URL", async () => {
+  const notFound = await readFile(new URL("404.html", root), "utf8");
+  const sitePath = process.env.RECURS_PAGES_REPOSITORY ? `/${process.env.RECURS_PAGES_REPOSITORY}/` : "/";
+  const missing = new URL("guides/missing/page", `https://example.org${sitePath}`);
+  const base = new URL(/<base href="([^"]+)"/u.exec(notFound)?.[1] ?? "", missing);
+  const homeLink = /href="([^"]+)">Back to Recurs/u.exec(notFound)?.[1];
+  assert.ok(homeLink);
+  assert.equal(new URL(homeLink, base).href, `https://example.org${sitePath}`);
+  for (const [, ref] of notFound.matchAll(/(?:src|href)="(\.\/[^"]+)"/gu)) {
+    assert.equal(new URL(ref, base).pathname, sitePath + ref.slice(2));
+    await access(new URL(ref, root));
+  }
+});
+
 test("render escapes model identity and verification evidence", () => {
   const campaign = structuredClone(campaigns[3]);
   campaign.arms[0].id = "<script>";
@@ -80,4 +94,21 @@ test("all install methods are visible above the command", () => {
   assert.ok(methods > 0 && methods < html.indexOf('class="install-command"'));
   assert.doesNotMatch(html, /Installation options|class="install-options"/u);
   for (const name of ["npm", "bun", "brew"]) assert.ok(html.includes(`data-install="${name}"`));
+});
+
+test("first-session tasks are reachable and readable before the page script runs", () => {
+  assert.ok(html.includes('href="#first-session"'));
+  const guide = html.match(/<section[^>]+id="first-session"[^>]*>([\s\S]*?)<\/section>/u)?.[1] ?? "";
+  assert.match(guide, /Ollama or LM Studio/u);
+  assert.ok(guide.includes("docs/CLI.md#provider-access"));
+  assert.ok(guide.includes("<code>recurs</code>"));
+  assert.ok(guide.includes("<code>/plan exit</code>"));
+  const tasks = [...guide.matchAll(/<details name="starter-task"( open)?>([\s\S]*?)<\/details>/gu)];
+  assert.equal(tasks.length, 3);
+  assert.equal(tasks.filter(task => task[1]).length, 1);
+  for (const [, , task] of tasks) {
+    assert.match(task, /<summary>[^<]+<\/summary>/u);
+    assert.match(task, /<code>\/plan [^<]+<\/code>/u);
+    assert.match(task, /<button[^>]+hidden>Copy prompt<\/button>/u);
+  }
 });

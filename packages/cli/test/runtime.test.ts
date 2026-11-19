@@ -181,7 +181,7 @@ describe("RecursRuntime", () => {
     directories.push(directory);
     const other = path.join(directory, "other");
     const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
-    await sessions.createPinnedSession({
+    const current = await sessions.createPinnedSession({
       id: "current-chat",
       at: testAt,
       cwd: directory,
@@ -192,6 +192,16 @@ describe("RecursRuntime", () => {
       at: testAt,
       cwd: other,
       backend: testBackendPin(),
+    });
+    const childWorkspace = path.join(directory, "child-worktree");
+    await sessions.createPinnedSession({
+      id: "child-chat", at: testAt, cwd: childWorkspace, backend: testBackendPin(),
+      agent: {
+        ...current.agent, id: "child", role: "child", profile: { id: "implement_v1", version: 1 },
+        parentAgentId: current.agent.id, parentSessionId: current.id, depth: 1,
+        task: { id: "child-task", description: "Inspect the parser", prompt: "Inspect the parser" },
+        backend: { ...current.agent.backend, strategy: "inherit_parent" },
+      },
     });
     const runtime = new RecursRuntime(
       {
@@ -205,6 +215,10 @@ describe("RecursRuntime", () => {
     await expect(runtime.listSessions()).resolves.toEqual([
       expect.objectContaining({ id: "current-chat", cwd: directory }),
     ]);
+    const childRuntime = new RecursRuntime({
+      commands: createCommandRegistry({ sessions }), sessions, confirm: async () => true,
+    }, createWorkspaceShell(childWorkspace));
+    await expect(childRuntime.listSessions()).resolves.toEqual([]);
   });
 
   it.each(["session", "workspace"])("exposes sanitized selection only to local interactive %s commands", async (mode) => {

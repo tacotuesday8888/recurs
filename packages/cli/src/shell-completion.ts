@@ -98,7 +98,7 @@ const OPTION_VALUES: Readonly<Record<string, readonly string[]>> = Object.freeze
   "--mode": ["economy", "standard", "balanced", "performance", "max"],
 });
 
-const GLOBAL_OPTIONS = Object.freeze(["--help", "--version", "-C"]);
+const GLOBAL_OPTIONS = Object.freeze(["--help", "--version", "--continue", "--resume", "-C"]);
 
 function words(values: Iterable<string>): string {
   return [...values].join(" ");
@@ -155,6 +155,7 @@ function renderZsh(): string {
     ...Object.entries(COMMANDS).map(([name, spec]) => `    '${name}:${zshQuote(spec.description)}'`),
     "  )",
     "  if (( CURRENT == 2 )); then",
+    `    compadd -- ${words(GLOBAL_OPTIONS)}`,
     "    _describe -t commands 'recurs command' commands",
     "    return",
     "  fi",
@@ -223,6 +224,8 @@ function renderFish(): string {
   lines.push(
     "complete -c recurs -n '__fish_use_subcommand' -l help -d 'Show help'",
     "complete -c recurs -n '__fish_use_subcommand' -l version -d 'Show the installed version'",
+    "complete -c recurs -n '__fish_use_subcommand' -l continue -d 'Reopen the latest chat'",
+    "complete -c recurs -n '__fish_use_subcommand' -l resume -x -d 'Open an exact chat by ID'",
     "complete -c recurs -n '__fish_use_subcommand' -s C -r -F -d 'Working root'",
     "",
   );

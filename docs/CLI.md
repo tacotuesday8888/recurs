@@ -101,6 +101,12 @@ Codex compatibility fixtures that are absent from a normal Recurs install.
 
 ## First run
 
+For the published alpha.11, start a local Ollama or LM Studio server with a
+downloaded model. Run `recurs provider detect` to check that Recurs can see
+the server. The hosted connection reviews bundled in alpha.11 expired in
+October 2026. Their status is available with `recurs provider list --all`.
+See the [loopback setup command](#provider-access) for a custom local port.
+
 Run `recurs` in a local terminal inside your project. Choose an existing
 session or **Start new chat**. Without a configured model, setup discovers saved accounts and local
 runtimes, connects your chosen model, and asks for a permission boundary.
@@ -272,6 +278,19 @@ original immutable backend pin.
 recurs [-C /path/to/project]
 ```
 
+In a **source build**, you can go straight back to a conversation:
+
+```bash
+recurs --continue
+recurs --resume <session-id>
+```
+
+Both accept `-C <dir>`. Continue opens the most recently updated unarchived
+parent chat in that workspace. Pinning affects the home list order. An exact
+ID can reopen an archived chat. Both paths restore the chat's original model,
+permissions, and transcript. With the published alpha.11, start `recurs` and
+choose the saved conversation from the home screen.
+
 Common slash commands:
 
 ```text
@@ -330,7 +349,9 @@ never represented as zero. Company handoff usage is labeled partial.
 ### Chats, changes, and workspace
 
 The home screen lists saved chats with pinned items first. **M** manages the
-selected chat; **A** opens archived chats. `/rename <title>`, `/pin`, `/unpin`,
+selected chat; **A** opens archived chats. In a source build, **/** opens a
+search across active and archived chats by title, first prompt, model, or ID.
+`/rename <title>`, `/pin`, `/unpin`,
 `/archive`, and `/unarchive` organize the current chat. Pin/archive commands also
 accept a session ID from this workspace. Titles support 1–120 printable
 characters. Cosmetic metadata is stored separately from execution history.
@@ -483,8 +504,8 @@ Useful options:
   mode.
 - `--connection <id>` selects one saved connection.
 - `--resume <session-id>` continues one exact durable parent session;
-  `--continue` continues the newest one recorded for this working root. Both
-  keep the stored connection, permissions, and operating mode, so they cannot
+  `--continue` continues the most recently updated unarchived parent chat in this working root.
+  Both keep the stored connection, permissions, and operating mode, so they cannot
   be combined with `--plan`, `--permissions`, `--mode`, or `--connection`.
 - `--format text|json|jsonl` selects output framing.
 - `--stdin` appends bounded piped input.

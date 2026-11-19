@@ -2,11 +2,13 @@ export const CLI_HELP = `Recurs coding-agent harness
 
 Usage:
   recurs [-C <dir>]              Open the interactive CLI in one working root
+  recurs --continue [-C <dir>]   Reopen this workspace's latest unarchived chat
+  recurs --resume <session-id>   Open one saved chat in this workspace
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt> [-C <dir>] Run one prompt in one working root
   recurs run <prompt> [--plan] [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
-  recurs run <prompt> --continue Resume this workspace's latest durable session
+  recurs run <prompt> --continue Resume this workspace's latest unarchived chat
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs run <prompt> --image <path> [--image <path>]
@@ -68,7 +70,7 @@ Headless runs require a connection that permits scripted use.
 
 Fresh runs create a new durable session. Resume retains the stored provider,
 working root, permissions, and operating mode; --continue resumes the newest
-durable parent session recorded for this working root the same way. JSON writes one terminal object;
+unarchived parent session recorded for this working root the same way. JSON writes one terminal object;
 JSONL streams normalized events. Stdin is bounded to 1 MiB of valid UTF-8.
 Explicit PNG, JPEG, and WebP inputs are bounded to five MiB total and require
 a direct provider adapter with image support. --plan pins the fresh session to
@@ -171,7 +173,8 @@ Plan mode, parent-ceiling, and OS-containment checks remain authoritative.
 
 Start with:
   recurs doctor
-  recurs help recovery
+  recurs --continue [-C <dir>]    Reopen the latest unarchived chat interactively
+  recurs --resume <session-id>     Reopen an exact chat interactively
 
 Inside an interactive session:
   /status                         Inspect the active session, goal, and limits

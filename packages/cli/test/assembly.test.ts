@@ -2110,7 +2110,7 @@ describe("standalone assembly without a provider", () => {
       },
     )).rejects.toMatchObject({
       code: "invalid_input",
-      message: "Only a durable parent session can be resumed from one-shot mode",
+      message: "Only a durable parent session can be reopened as a chat",
     });
 
     await sessions.createPinnedSession({
@@ -2119,6 +2119,15 @@ describe("standalone assembly without a provider", () => {
       backend: parent.session.backend.pin,
       at: "9997-12-31T23:59:59.999Z",
     });
+    // A launcher pin and a newer archived chat must not change --continue.
+    await sessions.updateMetadata(parent.session.id, { pinned: true });
+    await sessions.createPinnedSession({
+      id: "newer-archived-parent",
+      cwd: repositoryRoot,
+      backend: parent.session.backend.pin,
+      at: "9998-12-31T23:59:59.999Z",
+    });
+    await sessions.updateMetadata("newer-archived-parent", { archived: true });
     const beforeLatestResume = await sessions.list();
     const latest = await createStandaloneRuntime(
       { async emit() {} },
@@ -2155,7 +2164,7 @@ describe("standalone assembly without a provider", () => {
       },
     )).rejects.toMatchObject({
       code: "invalid_input",
-      message: "No durable parent session exists for this workspace; start without --continue",
+      message: "No active saved chat in this workspace. Run recurs to start or choose a chat.",
     });
     await expect(createStandaloneRuntime(
       { async emit() {} },

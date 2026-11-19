@@ -12,46 +12,84 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-d96545.svg" alt="Apache 2.0"></a>
 </p>
 
+<p align="center">
+  <a href="https://tacotuesday8888.github.io/recurs/#first-session">Try the first-session guide</a> ·
+  <a href="#every-step-stays-in-view">Watch the terminal walkthrough</a> ·
+  <a href="docs/CLI.md">CLI guide</a>
+</p>
+
 ## Install
 
-macOS or Linux · Node.js 22.22+ · Git 2.45+ · ripgrep
+Use a terminal in your Git project on macOS or Linux. Recurs requires Node.js
+22.22+, Git 2.45+, and ripgrep. Linux also needs Bubblewrap for subprocess tools.
 
 ```bash
 npm install --global recurs@alpha
-cd your-project
-recurs
 ```
-
-Connect a model, choose permissions, and start coding: your Codex login, a
-supported API provider, or a local model. [Connections](docs/PROVIDER_CAPABILITY_MATRIX.md)
 
 <details>
 <summary>Bun, Homebrew, or the release installer</summary>
 
+Choose one installation method.
+
 ```bash
 bun install --global recurs@alpha
+```
+
+```bash
 brew install tacotuesday8888/recurs/recurs
+```
+
+```bash
 curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.11/install.sh | sh
 ```
 
-Bun can install Recurs; Node.js runs it. Linux command isolation requires Bubblewrap.
-[Install help](docs/CLI.md#install)
+Bun can install Recurs; Node.js runs it. [Install help](docs/CLI.md#install)
 
 </details>
 
+## Your first chat
+
+Start Ollama or LM Studio with a local model that supports tool calls. From
+your project directory, open Recurs.
+
+```bash
+recurs
+```
+
+Choose **Start new chat**, select **Use detected Ollama** or **Use detected LM
+Studio**, and enter the exact model ID shown by your server. Choose **Ask
+Always** for permissions, then **Start coding**. If your server uses a custom
+port, pass its loopback URL and model ID to `recurs setup local`.
+[First-run guide](docs/CLI.md#first-run)
+
+The published `0.1.0-alpha.11` still works with local models. Its bundled
+policy reviews for Codex, Copilot, and saved API-key connections expired in
+October 2026. Those connection paths require a release with updated reviews.
+
+Send this in the chat to explore your project in read-only Plan mode.
+
+```text
+/plan Trace one feature from its entry point to a test. Include file paths.
+```
+
+Open the files it names or ask a follow-up. When you're ready to make a change,
+send `/plan exit` and describe the edit. To pick up later, run `recurs` in the
+same project and select your saved chat.
+
 ## Every step stays in view
 
-Recurs shows what each agent reads, edits and runs. Open a step, review the
-diff, and your draft is still there when you return.
+When you delegate implementation, workers edit isolated Git worktrees. An
+independent reviewer checks the changes before your session applies them.
 
-![Recurs terminal: a parser fix with approvals, applied edits and inspectable steps](docs/assets/terminal-workflow.gif)
+![Recurs terminal walkthrough showing a parser fix, an approval prompt and the applied edit](docs/assets/terminal-workflow.gif)
 
-- **Choose the models.** Use one model for everything, or assign separate ones
-  to implement, review and repair. `recurs setup`
-- **Bound the team.** Set delegation depth, concurrency, request budgets and
-  permissions before work starts. `/agents`
-- **Review before it lands.** Workers build in isolated Git worktrees; an
-  independent reviewer checks their work before your session applies it. <kbd>Ctrl+T</kbd>
+| In the terminal | What you can do |
+| --- | --- |
+| `/agents routes` | See which models are assigned to implement, review, and repair. Run `recurs setup` from your shell to change assignments. |
+| `/agents controls` | Inspect delegation depth, concurrency, and request limits before starting a team. |
+| <kbd>Ctrl</kbd> + <kbd>T</kbd> | Select a worker and press <kbd>Enter</kbd> to inspect its transcript and changed files. |
+| `/diff` | Review changes in your working tree. Use `/diff --staged` for the staged patch. |
 
 <details>
 <summary>Code review and the agent team</summary>

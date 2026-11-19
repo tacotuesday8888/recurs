@@ -1288,7 +1288,7 @@ export async function createStandaloneRuntime(
     if (!isPinnedSessionState(candidate) || candidate.agent.role !== "parent") {
       throw new RuntimeError(
         "invalid_input",
-        "Only a durable parent session can be resumed from one-shot mode",
+        "Only a durable parent session can be reopened as a chat",
       );
     }
     if (candidate.cwd !== cwd) {
@@ -2289,15 +2289,14 @@ async function latestParentSessionId(
       "Choose either the latest session or one exact session id, not both",
     );
   }
-  for (const entry of await sessions.list()) {
-    if (entry.cwd !== cwd || entry.version !== 2) continue;
-    const candidate = await sessions.loadStateReadOnly(entry.id);
-    if (isPinnedSessionState(candidate) && candidate.agent.role === "parent") {
-      return candidate.id;
-    }
-  }
+  // The launcher lists pins first. Continuation follows the latest activity.
+  const [latest] = (await sessions.list())
+    .filter((entry) => entry.cwd === cwd && entry.version === 2 &&
+      entry.parentSessionId === undefined && !entry.archived)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  if (latest !== undefined) return latest.id;
   throw new RuntimeError(
     "invalid_input",
-    "No durable parent session exists for this workspace; start without --continue",
+    "No active saved chat in this workspace. Run recurs to start or choose a chat.",
   );
 }

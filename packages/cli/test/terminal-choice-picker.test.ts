@@ -107,3 +107,37 @@ it("keeps unmatched searches open and restores the full list on Escape", () => {
   picker.handleInput("\u001b");
   expect(settle).toHaveBeenCalledWith(null);
 });
+
+it("keeps the pasted query and matches visible in a narrow terminal", () => {
+  const settle = vi.fn();
+  const picker = new TerminalChoicePicker({
+    message: "Find a chat (including archived)", startInSearch: true,
+    choices: [{ id: "one", label: "Parser", detail: "検索したいチャット番号123456" }],
+    theme, rows: () => 4, settle, refresh() {},
+  });
+  picker.handleInput("\x1b[200~検索したいチャット番号123456\n\x1b[201~");
+  const rows = picker.render(12);
+  expect(rows).toHaveLength(4);
+  expect(rows.every((line) => visibleWidth(line) <= 12)).toBe(true);
+  expect(rows[0]).toMatch(/123456$/u);
+  expect(rows).toContain("› Parser");
+  picker.handleInput("\r");
+  expect(settle).toHaveBeenCalledWith("one");
+});
+
+it("keeps an empty search open on Enter and returns to the launcher on Escape", () => {
+  const settle = vi.fn();
+  let height = 1;
+  const picker = new TerminalChoicePicker({
+    message: "Find a chat", startInSearch: true, emptyMessage: "No saved chats yet.",
+    choices: [], theme, rows: () => height, settle, refresh() {},
+  });
+  expect(picker.render(32)).toEqual(["No saved chats yet."]);
+  height = 10;
+  picker.handleInput("\x1b[200~bad\x1b[2Jquery\x1b[201~");
+  expect(picker.render(32).join("\n")).not.toContain("bad");
+  picker.handleInput("\r");
+  expect(settle).not.toHaveBeenCalled();
+  picker.handleInput("\x1b");
+  expect(settle).toHaveBeenCalledExactlyOnceWith(null);
+});
