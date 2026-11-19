@@ -586,8 +586,16 @@ describe("RecursInteractiveShell", () => {
     terminal.input?.("\u001b");
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.writes.at(-1)).toContain("Chats · 1");
+    terminal.output = "";
+    terminal.input?.("/");
+    await vi.waitFor(() => expect(terminal.output).toContain("Find a chat"));
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    await vi.waitFor(() => expect(terminal.output).toContain("/ CHAT"));
+    terminal.output = "";
+    terminal.input?.("\x1b");
+    await vi.waitFor(() => expect(terminal.output).toContain("/ find"));
+    terminal.input?.("/");
+    await vi.waitFor(() => expect(terminal.output).toContain("Find a chat"));
     terminal.input?.("\u0011");
     await expect(running).resolves.toEqual({ type: "quit" });
   });
@@ -638,6 +646,52 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).not.toContain("Your company is ready");
     terminal.input?.("\u0011");
     await expect(running).resolves.toEqual({ type: "quit" });
+  });
+
+  it("finds and reopens archived chats from a workspace without an active session", async () => {
+    const terminal = new TestTerminal(88, 24);
+    const saved = {
+      id: "id-parser", title: "Parser cleanup", preview: "Fix an off-by-one bug",
+      model: "model-small", updatedAt: "2026-08-14T01:00:00Z", version: 2, cwd: "/workspace",
+    };
+    const archived = {
+      ...saved, id: "id-docs", title: "Release notes", preview: "Explain the paging change",
+      model: "model-large", archived: true,
+    };
+    const runtime = {
+      state: { type: "workspace", permissionMode: "approved_for_me" },
+      async listSessions() { return [saved, archived]; },
+      setConfirmHandler() {}, setApprovalHandler() {}, setUserInputHandler() {},
+      commandNames() { return []; }, cancel() { return false; }, async close() {},
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", animate: false, colorEnabled: false });
+    const running = shell.start(runtime);
+    try {
+      await vi.waitFor(() => expect(terminal.output).toContain("/ find"));
+      expect(terminal.output).toContain(saved.title);
+      expect(terminal.output).not.toContain(archived.title);
+      for (const query of ["paging", "MODEL-LARGE", "id-docs", "Release"]) {
+        terminal.output = "";
+        terminal.input?.("/");
+        await vi.waitFor(() => expect(terminal.output).toContain("Find a chat"));
+        terminal.output = "";
+        terminal.input?.(query);
+        await vi.waitFor(() => expect(terminal.output).toContain("› Release notes · archived"));
+        terminal.input?.("\x1b");
+        await vi.waitFor(() => expect(terminal.output).toContain("/ find"));
+      }
+
+      terminal.output = "";
+      terminal.input?.("A");
+      await vi.waitFor(() => expect(terminal.output).toContain("Archived chats"));
+      expect(terminal.output).toContain("› Release notes · archived");
+      expect(terminal.output).not.toContain(saved.title);
+      terminal.input?.("\r");
+      await expect(running).resolves.toEqual({ type: "resume_session", sessionId: archived.id });
+    } finally {
+      terminal.input?.("\x11");
+      await running;
+    }
   });
 
   it("returns a new-project action from the launch screen", async () => {

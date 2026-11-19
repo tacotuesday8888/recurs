@@ -1588,6 +1588,32 @@ describe("chat organization", () => {
     expect((await new JsonlSessionStore(sessions.directory).list())[0]).toMatchObject({ title: "Parser cleanup", pinned: false, archived: false });
     expect(await readFile(path.join(sessions.directory, "organized.jsonl"), "utf8")).toBe(before);
   });
+  it("identifies untitled chats by their first prompt in text and interactive lists", async () => {
+    const ctx = context(await storeSession("current"));
+    await storeSession("older", at, [
+      { id: "request", role: "user", content: "Repair the \x1b[31mparser\x1b[0m" },
+      { id: "answer", role: "assistant", content: "Done", toolCalls: [] },
+    ]);
+    await writeFile(path.join(sessions.directory, "legacy-chat.jsonl"), JSON.stringify({
+      version: 1, type: "session_created", sessionId: "legacy-chat", at, cwd, model: "legacy-model",
+    }) + "\n", { mode: 0o600 });
+    const registry = createCommandRegistry({ sessions });
+    expect(await registry.execute("/chats", ctx)).toMatchObject({
+      text: expect.stringContaining("older  Repair the parser"),
+    });
+    const choose = vi.fn(async () => "older");
+    ctx.selectChoice = choose;
+    await registry.execute("/chats all", ctx);
+    expect(choose).toHaveBeenCalledWith("Chats · select to open", expect.arrayContaining([
+      expect.objectContaining({ id: "older", label: "Repair the parser" }),
+    ]));
+    expect(choose).not.toHaveBeenCalledWith(expect.any(String), expect.arrayContaining([
+      expect.objectContaining({ id: "legacy-chat" }),
+    ]));
+    expect(await registry.execute("/resume", ctx)).toMatchObject({ text: expect.stringContaining("legacy-chat") });
+    expect(ctx.session.id).toBe("older");
+  });
+
   it("copies a completed chat and rejects invalid titles without changing metadata", async () => {
     const state = await storeSession("original", at, [{ id: "question", role: "user", content: "hello" }, { id: "answer", role: "assistant", content: "world", toolCalls: [] }]);
     const ctx = context(state), registry = createCommandRegistry({ sessions });

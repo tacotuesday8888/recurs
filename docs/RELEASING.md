@@ -33,9 +33,9 @@ and credential-free; it is the release gate for the complete first-use company
 journey, not a prose-only capability claim.
 
 The portable npm artifact contains the same TypeScript runtime verified in CI.
-Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
-footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. Current artifact and installed-prefix measurements
+Its package gate caps the JavaScript bundle at 2.10 MB and the unpacked npm
+archive at 2.30 MB. The installed footprint includes the runtime dependencies
+npm resolves separately. Codex is optional. Artifact and installed-prefix measurements
 are recorded in [the release evidence](RELEASE_READINESS.md). Source checkout
 size includes pinned Codex compatibility fixtures and is not an install-size
 measurement.

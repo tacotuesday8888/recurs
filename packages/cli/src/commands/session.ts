@@ -6,6 +6,7 @@ import {
   isPinnedSessionState,
 } from "@recurs/core";
 
+import { chatChoice, chatLabel } from "../chat-history.js";
 import {
   createProjectInstructions,
   hasWorkspaceProjectInstructions,
@@ -218,11 +219,22 @@ function createChatCommands(dependencies: CommandDependencies): Command[] {
     name: "chats", description: "Find active or archived chats", usage: "/chats [archived|all]",
     async execute(args, context) {
       if (!dependencies.sessions) return message("Session storage is unavailable", "error");
-      if (!["", "archived", "all"].includes(args.trim())) return message("Use /chats [archived|all]", "error");
-      const entries = (await dependencies.sessions.list()).filter((entry) => entry.cwd === context.session.cwd && entry.parentSessionId === undefined && (args.trim() === "all" || Boolean(entry.archived) === (args.trim() === "archived")));
+      const scope = args.trim();
+      if (!["", "archived", "all"].includes(scope)) return message("Use /chats [archived|all]", "error");
+      const entries = (await dependencies.sessions.list()).filter((entry) =>
+        entry.cwd === context.session.cwd && entry.parentSessionId === undefined &&
+        (!context.selectChoice || entry.version === 2) &&
+        (scope === "all" || Boolean(entry.archived) === (scope === "archived")),
+      );
       if (entries.length === 0) return message("No matching chats. Use /chats all to include archived chats.");
-      if (!context.selectChoice) return message(entries.map((entry) => `${entry.id}  ${entry.pinned ? "[pinned] " : ""}${entry.title ?? entry.model}${entry.archived ? " [archived]" : ""}`).join("\n"));
-      const id = await context.selectChoice("Chats · select to open", entries.map((entry) => ({ id: entry.id, label: `${entry.pinned ? "★ " : ""}${entry.title ?? entry.model}${entry.archived ? " · archived" : ""}`, detail: `${entry.updatedAt} · ${entry.cwd}`, current: entry.id === context.session.id })));
+      if (!context.selectChoice) {
+        return message(entries.map((entry, index) => {
+          const label = chatLabel(entry, context.session.id, index);
+          return `${entry.id}  ${entry.pinned ? "[pinned] " : ""}${label}${entry.archived ? " [archived]" : ""}`;
+        }).join("\n"));
+      }
+      const choices = entries.map((entry, index) => chatChoice(entry, context.session.id, index));
+      const id = await context.selectChoice("Chats · select to open", choices);
       if (id === null) return message("Chat selection cancelled");
       if (!entries.some((entry) => entry.id === id)) return message("Chat selection is unavailable", "error");
       context.session = await dependencies.sessions.loadState(id);

@@ -27,41 +27,78 @@ recordingControl.addEventListener("click", () => {
 reducedMotion.addEventListener("change", () => {
   if (reducedMotion.matches) { showPoster(); recordingControl.textContent = "Play demo"; }
 });
-// Start the recorded demo only when requested; the hero R is the sole automatic motion.
+
+function enableCopy(button: HTMLButtonElement, source: HTMLElement, status: HTMLElement) {
+  const label = button.textContent;
+  let revision = 0;
+  button.hidden = false;
+  button.addEventListener("click", async () => {
+    const current = ++revision;
+    const value = source.textContent ?? "";
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      if (current !== revision) return;
+      const range = document.createRange();
+      range.selectNodeContents(source);
+      const selection = getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch { /* Manual copy below. */ }
+      if (!copied) {
+        button.textContent = "Selected";
+        status.textContent = "Text selected. Use your device’s Copy command.";
+        status.classList.remove("sr-only");
+        return;
+      }
+    }
+    if (current !== revision) return;
+    button.textContent = "Copied";
+    status.classList.add("sr-only");
+    status.textContent = "Copied to clipboard.";
+  });
+  return () => {
+    revision++;
+    button.textContent = label;
+    status.textContent = "";
+  };
+}
+
 const installCommand = document.querySelector<HTMLElement>("#install-command")!;
 const installNote = document.querySelector<HTMLElement>("#install-note")!;
-const copyButton = document.querySelector<HTMLButtonElement>("#copy-install")!;
-const installCommands: Record<string, string> = { npm: "npm install --global recurs@alpha", bun: "bun install --global recurs@alpha", brew: "brew install tacotuesday8888/recurs/recurs" };
-document.querySelectorAll<HTMLButtonElement>("[data-install]").forEach((button) => {
+const resetInstallCopy = enableCopy(
+  document.querySelector<HTMLButtonElement>("#copy-install")!,
+  installCommand,
+  document.querySelector<HTMLElement>("#copy-status")!,
+);
+const installCommands: Record<string, string> = {
+  npm: "npm install --global recurs@alpha",
+  bun: "bun install --global recurs@alpha",
+  brew: "brew install tacotuesday8888/recurs/recurs",
+};
+const installMethods = document.querySelector<HTMLElement>(".install-methods")!;
+installMethods.hidden = false;
+const methodButtons = installMethods.querySelectorAll<HTMLButtonElement>("[data-install]");
+methodButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const method = button.dataset.install!;
-    installCommand.textContent = installCommands[method]!;
-    copyButton.textContent = "Copy";
-    document.querySelectorAll<HTMLButtonElement>("[data-install]").forEach((other) => other.setAttribute("aria-pressed", String(button === other)));
-    installNote.firstChild!.textContent = method === "bun" ? "Bun installs the package; Node.js 22.22+ runs Recurs. " : "Node.js 22.22+ · macOS or Linux. ";
+    installCommand.textContent = installCommands[method];
+    resetInstallCopy();
+    methodButtons.forEach((other) => other.setAttribute("aria-pressed", String(button === other)));
+    installNote.textContent = method === "bun"
+      ? "Bun installs Recurs. Node.js 22.22+ runs it on macOS or Linux."
+      : "Node.js 22.22+ on macOS or Linux.";
   });
 });
-function selectCommand(): void {
-  const range = document.createRange();
-  range.selectNodeContents(installCommand);
-  const selection = getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
-}
-copyButton.addEventListener("click", () => {
-  const status = document.querySelector<HTMLElement>("#copy-status")!;
-  const copied = () => { status.textContent = "Installation command copied."; copyButton.textContent = "Copied"; };
-  // Without clipboard access, select the command and try the legacy copy path.
-  const fallback = () => {
-    selectCommand();
-    let legacy = false;
-    try { legacy = document.execCommand("copy"); } catch { /* Unsupported. */ }
-    if (legacy) { copied(); return; }
-    status.textContent = "Command selected. Press Command-C or Ctrl+C to copy it.";
-    copyButton.textContent = "Selected";
-  };
-  if (navigator.clipboard === undefined) { fallback(); return; }
-  void navigator.clipboard.writeText(installCommand.textContent!).then(copied, fallback);
+
+document.querySelectorAll<HTMLDetailsElement>(".starter-prompts details").forEach((task) => {
+  const reset = enableCopy(
+    task.querySelector<HTMLButtonElement>("button")!,
+    task.querySelector<HTMLElement>("code")!,
+    task.querySelector<HTMLElement>('[role="status"]')!,
+  );
+  task.addEventListener("toggle", () => { if (!task.open) reset(); });
 });
 
 installPageMotion(() => { showPoster(); recordingControl.textContent = "Play demo"; });

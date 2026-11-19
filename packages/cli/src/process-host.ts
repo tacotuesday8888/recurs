@@ -247,6 +247,7 @@ export interface CliDependencies {
       readonly cwd?: string;
       readonly reuseExistingSession?: boolean;
       readonly resumeSessionId?: string;
+      readonly resumeLatestSession?: boolean;
       readonly companyBlueprint?: CompanyBlueprint;
     },
   ): Promise<RecursRuntime>;
@@ -452,6 +453,18 @@ function githubCopilotActionText(error: GitHubCopilotConnectionError): string | 
   return `Error: ${error.message}\nNext: ${command}${error.action.thenEnter === undefined
     ? ""
     : `\nThen enter ${error.action.thenEnter} in the official Copilot CLI.`}\n`;
+}
+
+function interactiveResumeOptions(argv: readonly string[]) {
+  if (argv.length === 1 && argv[0] === "--continue") {
+    return { resumeLatestSession: true };
+  }
+  const sessionId = argv[1];
+  if (argv.length === 2 && argv[0] === "--resume" &&
+      sessionId !== undefined && SAFE_SESSION_ID.test(sessionId)) {
+    return { resumeSessionId: sessionId };
+  }
+  return undefined;
 }
 
 function parseAgentArguments(
@@ -1691,7 +1704,8 @@ export async function runCli(
     return 2;
   }
 
-  if (argv.length === 0) {
+  const resumeOptions = interactiveResumeOptions(argv);
+  if (argv.length === 0 || resumeOptions !== undefined) {
     if (
       dependencies.interactive !== true ||
       dependencies.automation === true
@@ -1710,9 +1724,9 @@ export async function runCli(
     const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
     let runtime: RecursRuntime | undefined;
     try {
-      runtime = await dependencies.createRuntime(renderer);
+      runtime = await dependencies.createRuntime(renderer, resumeOptions);
       if (shell !== undefined) {
-        let startOptions: InteractiveShellStartOptions = { launch: true };
+        let startOptions: InteractiveShellStartOptions = { launch: resumeOptions === undefined };
         while (true) {
           const exit = await startInteractiveRepl(
             runtime,
@@ -2639,16 +2653,18 @@ export async function runCliProcess(
   processOptions: { readonly ptyDriver?: PtyDriver } = {},
 ): Promise<void> {
   const argv = process.argv.slice(2);
-  const doctorRequested = argv[0] === "doctor" && (
-    argv.length === 1 ||
-    (argv.length === 2 && argv[1] === "--json")
+  const command = extractWorkingRoot(argv)?.argv ?? argv;
+  const doctorRequested = command[0] === "doctor" && (
+    command.length === 1 ||
+    (command.length === 2 && command[1] === "--json")
   );
   const interactiveOperationRequested = doctorRequested ||
-    argv.length === 0 ||
-    argv[0] === "benchmark" ||
-    argv[0] === "provider" ||
-    argv[0] === "account" ||
-    argv[0] === "setup";
+    command.length === 0 ||
+    interactiveResumeOptions(command) !== undefined ||
+    command[0] === "benchmark" ||
+    command[0] === "provider" ||
+    command[0] === "account" ||
+    command[0] === "setup";
   const interactiveOperationController = interactiveOperationRequested
     ? new AbortController()
     : undefined;
@@ -2833,28 +2849,7 @@ export async function runCliProcess(
             ...(processOptions.ptyDriver === undefined
               ? {}
               : { ptyDriver: processOptions.ptyDriver }),
-            ...(options?.permissionMode === undefined
-              ? {}
-              : { permissionMode: options.permissionMode }),
-            ...(options?.executionMode === undefined
-              ? {}
-              : { executionMode: options.executionMode }),
-            ...(options?.operatingModeId === undefined
-              ? {}
-              : { operatingModeId: options.operatingModeId }),
-            ...(options?.connectionId === undefined
-              ? {}
-              : { connectionId: options.connectionId }),
-            ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
-            ...(options?.reuseExistingSession === undefined
-              ? {}
-              : { reuseExistingSession: options.reuseExistingSession }),
-            ...(options?.resumeSessionId === undefined
-              ? {}
-              : { resumeSessionId: options.resumeSessionId }),
-            ...(options?.companyBlueprint === undefined
-              ? {}
-              : { companyBlueprint: options.companyBlueprint }),
+            ...options,
             lifecycleHookClose: hooks.close,
           });
           termination.register(() => runtime.close());

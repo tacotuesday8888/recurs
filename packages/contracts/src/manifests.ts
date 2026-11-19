@@ -57,10 +57,16 @@ export interface UsagePolicyRule {
   reason: string;
 }
 
-export interface ProviderUsagePolicy {
-  revision: string;
+export interface ProviderReviewPeriod {
   reviewedAt: string;
   expiresAt: string;
+}
+
+export interface ProviderUsagePolicy extends ProviderReviewPeriod {
+  /** Changes when the access rules change, independently of evidence renewal. */
+  revision: string;
+  /** Prior, disjoint windows for these same rules. Gaps remain expired. */
+  previousReviews?: readonly ProviderReviewPeriod[];
   defaultDecision: PolicyDecision;
   rules: readonly UsagePolicyRule[];
   officialRuntimeRequired: boolean;

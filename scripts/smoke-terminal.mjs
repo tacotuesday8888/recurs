@@ -331,10 +331,8 @@ try {
   resumed.process.write("\u0011");
   await resumed.wait(() => resumed.exit() !== undefined, "resumed exit");
   resumed.terminal.dispose();
-  const colorful = await launch([], { NO_COLOR: undefined, RECURS_REDUCED_MOTION: "1" });
-  await colorful.wait((screen) => screen.includes("Review parser.ts"), "colored launcher");
-  colorful.process.write("\r");
-  await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
+  const colorful = await launch(["--continue"], { NO_COLOR: undefined, RECURS_REDUCED_MOTION: "1" });
+  await colorful.wait((screen) => screen.includes("/ CHAT") && screen.includes("Inspection line 64"), "direct continuation restores transcript and saved light theme");
   assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0xffffff);
   colorful.process.write("/new\r");
   await colorful.wait((screen) => screen.includes("/ CHAT") && screen.includes("Choose the models. Bound the team.") && !screen.includes("Inspection line 64"), "fresh colored conversation");
@@ -543,8 +541,12 @@ try {
   colorful.terminal.dispose();
   const organized = await launch([]);
   await organized.wait((screen) => screen.includes("M manage"), "organized chats survive restart");
-  organized.process.write("\u001b[B");
-  await organized.wait((screen) => screen.includes("Review copy") || screen.includes("Parser review"), "copied and named history survives restart");
+  organized.process.write("/");
+  await organized.wait((screen) => screen.includes("Find a chat"), "launcher search after restart");
+  organized.process.write("\u001b[200~Review copy\u001b[201~");
+  await organized.wait((screen) => screen.includes("/Review copy") && screen.includes("› Review copy"), "pasted chat title selects the saved copy");
+  organized.process.write("\r");
+  await organized.wait((screen) => screen.includes("/ CHAT") && screen.includes("Copied from"), "reopen the matching copied conversation");
   organized.process.write("\u0011");
   await organized.wait(() => organized.exit() !== undefined, "organized restart exit");
   organized.terminal.dispose();
@@ -572,7 +574,7 @@ try {
   assert.deepEqual(await backgroundCommands(), [], "SIGTERM stops owned background commands");
   signalled.terminal.dispose();
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, ...(stress ? { stress: { method: "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof", samples: stressSamples } } : {}), checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart", "SIGTERM restores the terminal and stops background commands"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, ...(stress ? { stress: { method: "120 sequential streamed turns from a local deterministic fixture provider; sample parent and owned process-tree RSS after each completed turn; 24 resize/navigation/draft cycles; not vendor-model quality or a leak proof", samples: stressSamples } } : {}), checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "collapsed details and checklist", "click read/edit/change-summary snapshots", "activity navigation preserves draft", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "launcher search reopens the named copy after restart", "SIGTERM restores the terminal and stops background commands"], capture: temporary }, null, 2));
 } finally {
   if (recordingTimer) clearInterval(recordingTimer);
   releaseChild();

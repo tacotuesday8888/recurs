@@ -3972,6 +3972,44 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it.each([
+    { args: ["--continue"], target: { resumeLatestSession: true } },
+    { args: ["--resume", "chat-2"], target: { resumeSessionId: "chat-2" } },
+  ])("opens the requested chat directly from the shell with $args", async ({ args, target }) => {
+    const startOptions: unknown[] = [];
+    const requested: unknown[] = [];
+    const exit = await runCli(args, {
+      stdout: new TextOutput(),
+      stderr: new TextOutput(),
+      interactive: true,
+      terminalUi: true,
+      createInteractiveShell: () => ({
+        events: { async emit() {} },
+        async start(_runtime, options) { startOptions.push(options); },
+      }),
+      async createRuntime(events, options) {
+        requested.push(options);
+        return createRuntime(events);
+      },
+    });
+    expect(exit).toBe(0);
+    expect(requested).toEqual([target]);
+    expect(startOptions).toEqual([{ launch: false }]);
+  });
+
+  it.each([
+    ["--resume"], ["--resume", "../chat"], ["--resume", "chat", "--continue"],
+    ["--continue", "--permissions", "full"], ["--continue", "--continue"],
+  ])("rejects invalid interactive launch arguments (%s)", async (...args) => {
+    const stderr = new TextOutput();
+    const exit = await runCli(args, {
+      stdout: new TextOutput(), stderr, interactive: true,
+      async createRuntime() { throw new Error("unexpected runtime"); },
+    });
+    expect(exit).toBe(2);
+    expect(stderr.value).toContain("Usage:");
+  });
+
   it("rebinds the runtime when the terminal launcher opens another chat", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();

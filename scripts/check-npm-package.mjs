@@ -24,11 +24,11 @@ const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
   "@agentclientprotocol/sdk": "1.4.0",
   "@earendil-works/pi-tui": "0.83.0",
-  "@modelcontextprotocol/client": "2.0.0",
+  "@modelcontextprotocol/client": "2.3.1",
   typescript: "6.0.3",
   ws: "8.21.3",
   yaml: "2.9.1",
-  zod: "4.6.2",
+  zod: "4.6.7",
 });
 const expectedOptionalPeerDependencies = Object.freeze({
   "@agentclientprotocol/codex-acp": "1.1.7",
@@ -42,14 +42,14 @@ const expectedNoticeRows = Object.freeze([
   "| `@agentclientprotocol/codex-acp` | 1.1.7 | Apache-2.0 |",
   "| `@agentclientprotocol/sdk` | 1.4.0 | Apache-2.0 |",
   "| `@earendil-works/pi-tui` | 0.83.0 | MIT |",
-  "| `@modelcontextprotocol/client` | 2.0.0 | Apache-2.0 and MIT |",
+  "| `@modelcontextprotocol/client` | 2.3.1 | Apache-2.0 and MIT |",
   "| `@github/copilot-sdk` | 1.0.8 | MIT |",
   "| `@lydell/node-pty` | 1.1.0 | MIT |",
   "| `@openai/codex` | 0.145.0 | Apache-2.0 |",
   "| `typescript` | 6.0.3 | Apache-2.0 |",
   "| `ws` | 8.21.3 | MIT |",
   "| `yaml` | 2.9.1 | ISC |",
-  "| `zod` | 4.6.2 | MIT |",
+  "| `zod` | 4.6.7 | MIT |",
 ]);
 function assert(condition, message) {
   if (!condition) {

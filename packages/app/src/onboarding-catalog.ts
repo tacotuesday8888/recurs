@@ -13,6 +13,7 @@ import {
   ProviderManifestRegistry,
   isEnvironmentCredentialManifest,
   isEnvironmentByokManifest,
+  providerReviewAt,
 } from "@recurs/providers";
 
 import { requiredProviderPolicyClaimIds } from "./provider-usage-policy.js";
@@ -65,22 +66,11 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-function currentPolicy(manifest: ProviderManifest, now: Date): boolean {
-  const milliseconds = now.getTime();
-  const reviewedAt = Date.parse(`${manifest.usagePolicy.reviewedAt}T00:00:00.000Z`);
-  const expiresAt = Date.parse(manifest.usagePolicy.expiresAt);
-  return (
-    Number.isFinite(milliseconds) &&
-    milliseconds >= reviewedAt &&
-    milliseconds < expiresAt
-  );
-}
-
 function statusFor(
   manifest: ProviderManifest,
-  now: Date,
+  policyCurrent: boolean,
 ): OnboardingStatus {
-  if (!currentPolicy(manifest, now)) return "blocked";
+  if (!policyCurrent) return "blocked";
   if (manifest.billingPolicy.providerFallback === "unknown") return "blocked";
   if (
     manifest.supportStatus === "blocked" ||
@@ -97,14 +87,14 @@ function statusFor(
 function restrictionsFor(
   manifest: ProviderManifest,
   status: OnboardingStatus,
-  now: Date,
+  policyCurrent: boolean,
 ): readonly string[] {
   const restrictions = [manifest.usagePolicy.evidenceSummary];
   if (manifest.endpointEvidence !== undefined) {
     restrictions.push(manifest.endpointEvidence);
   }
   for (const rule of manifest.usagePolicy.rules) restrictions.push(rule.reason);
-  if (!currentPolicy(manifest, now)) {
+  if (!policyCurrent) {
     restrictions.push("The reviewed usage policy is expired or not yet current.");
   } else if (manifest.billingPolicy.providerFallback === "unknown") {
     restrictions.push("Unknown provider billing fallback is blocked.");
@@ -128,7 +118,15 @@ function entryFor(
   manifest: ProviderManifest,
   now: Date,
 ): OnboardingCatalogEntry {
-  const status = statusFor(manifest, now);
+  const period = providerReviewAt(manifest.usagePolicy, now);
+  const status = statusFor(manifest, period !== undefined);
+  const policy = structuredClone(manifest.usagePolicy);
+  // Catalog entries describe the selected review. The registry retains history.
+  delete policy.previousReviews;
+  if (period !== undefined) {
+    policy.reviewedAt = period.reviewedAt;
+    policy.expiresAt = period.expiresAt;
+  }
   return deepFreeze({
     id: manifest.id,
     displayName: manifest.displayName,
@@ -143,8 +141,8 @@ function entryFor(
     endpoints: structuredClone(manifest.endpoints),
     regionAvailability: structuredClone(manifest.regionAvailability),
     billing: structuredClone(manifest.billingPolicy),
-    restrictions: restrictionsFor(manifest, status, now),
-    policy: structuredClone(manifest.usagePolicy),
+    restrictions: restrictionsFor(manifest, status, period !== undefined),
+    policy,
     requiredPolicyClaims: requiredProviderPolicyClaimIds(
       manifest.usagePolicy,
     ),

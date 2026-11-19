@@ -3,7 +3,9 @@
 Recurs is a TypeScript coding-agent harness for interactive work, bounded
 headless runs, repository review, and durable agent teams.
 
-This guide follows the published `0.1.0-alpha.11` release.
+This guide covers the `0.1.0-alpha.12` source candidate. The public npm preview
+is `0.1.0-alpha.11`. See [public alpha status](PUBLIC_ALPHA.md) for the
+installation channels and release record.
 
 ## Install
 
@@ -23,7 +25,7 @@ recurs
 
 `--global` only makes the `recurs` command available from any directory.
 Use the `@alpha` tag explicitly: npm `alpha` selects `0.1.0-alpha.11`, while
-unqualified `latest` remains `0.1.0-alpha.2` (verified September 9, 2026).
+unqualified `latest` remains `0.1.0-alpha.2` (verified November 18, 2026).
 The [product polish release record](PRODUCT_POLISH.md) includes the published artifact's
 integrity, provenance, and fresh installation checks.
 
@@ -100,6 +102,12 @@ minification; final package and installation measurements are recorded in
 Codex compatibility fixtures that are absent from a normal Recurs install.
 
 ## First run
+
+For the published alpha.11, start a local Ollama or LM Studio server with a
+downloaded model. Run `recurs provider detect` to check that Recurs can see
+the server. The hosted connection reviews bundled in alpha.11 expired in
+October 2026. Their status is available with `recurs provider list --all`.
+See the [loopback setup command](#provider-access) for a custom local port.
 
 Run `recurs` in a local terminal inside your project. Choose an existing
 session or **Start new chat**. Without a configured model, setup discovers saved accounts and local
@@ -192,12 +200,6 @@ recurs setup byok \
   --model qwen3-coder-plus \
   --key-env DASHSCOPE_API_KEY
 
-recurs setup byok \
-  --provider minimax-token-plan \
-  --model MiniMax-M2.7 \
-  --key-env MINIMAX_API_KEY \
-  --billing allow-additional
-
 recurs setup codex
 ```
 
@@ -228,9 +230,9 @@ Coding-plan setup also preserves the reviewed policy acknowledgement. Alibaba
 requires a separate confirmation of an active Coding Plan and runs only from a
 local, manual, user-present CLI session. That saved confirmation applies to
 future eligible sessions until the connection or reviewed policy changes.
-MiniMax Token Plan requires the
-documented prepaid-credit fallback to be accepted. These conditions are
-rechecked before every run; saved credentials do not bypass them.
+The alpha.12 candidate renews nine hosted routes. MiniMax Token Plan and
+seven other hosted routes remain closed after the November review. See the
+[provider matrix](PROVIDER_CAPABILITY_MATRIX.md) for the routes and evidence.
 
 Supported fixed-origin adapters include reviewed OpenAI Responses, Anthropic
 Messages, Gemini GenerateContent, and OpenAI Chat-compatible providers. The
@@ -271,6 +273,19 @@ original immutable backend pin.
 ```bash
 recurs [-C /path/to/project]
 ```
+
+In the alpha.12 candidate, you can go straight back to a conversation.
+
+```bash
+recurs --continue
+recurs --resume <session-id>
+```
+
+Both accept `-C <dir>`. Continue opens the most recently updated unarchived
+parent chat in that workspace. Pinning affects the home list order. An exact
+ID can reopen an archived chat. Both paths restore the chat's original model,
+permissions, and transcript. With the published alpha.11, start `recurs` and
+choose the saved conversation from the home screen.
 
 Common slash commands:
 
@@ -330,7 +345,9 @@ never represented as zero. Company handoff usage is labeled partial.
 ### Chats, changes, and workspace
 
 The home screen lists saved chats with pinned items first. **M** manages the
-selected chat; **A** opens archived chats. `/rename <title>`, `/pin`, `/unpin`,
+selected chat; **A** opens archived chats. In the alpha.12 candidate, **/** opens a
+search across active and archived chats by title, first prompt, model, or ID.
+`/rename <title>`, `/pin`, `/unpin`,
 `/archive`, and `/unarchive` organize the current chat. Pin/archive commands also
 accept a session ID from this workspace. Titles support 1–120 printable
 characters. Cosmetic metadata is stored separately from execution history.
@@ -483,8 +500,8 @@ Useful options:
   mode.
 - `--connection <id>` selects one saved connection.
 - `--resume <session-id>` continues one exact durable parent session;
-  `--continue` continues the newest one recorded for this working root. Both
-  keep the stored connection, permissions, and operating mode, so they cannot
+  `--continue` continues the most recently updated unarchived parent chat in this working root.
+  Both keep the stored connection, permissions, and operating mode, so they cannot
   be combined with `--plan`, `--permissions`, `--mode`, or `--connection`.
 - `--format text|json|jsonl` selects output framing.
 - `--stdin` appends bounded piped input.

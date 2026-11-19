@@ -2,8 +2,9 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
@@ -90,6 +91,27 @@ afterEach(async () => {
 });
 
 describe("saved environment BYOK connections", () => {
+  // The catalog checks the current date separately from the saved connection timestamp.
+  beforeEach(() => { useProviderFixtureClock(AT); });
+
+  it("rejects an expired BYOK policy even when given a historical connection timestamp", async () => {
+    useProviderFixtureClock("2026-10-11T00:00:00.000Z");
+    const directory = await root();
+    const fetch = vi.fn(async () => openAIModels("gpt-5.6-terra"));
+
+    await expect(setupEnvironmentConnection(directory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { OPENAI_API_KEY: "test-only" },
+      now: AT,
+    }, { fetch })).rejects.toMatchObject({ code: "provider_unsupported" });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect((await new FileConnectionRegistry(directory).read()).connections).toEqual([]);
+  });
+
   it("advertises reviewed Responses, Chat, Messages, and Gemini paths as BYOK without widening blocked providers", () => {
     const entries = new OnboardingCatalog(undefined, {
       now: () => new Date(AT),

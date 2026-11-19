@@ -1729,7 +1729,8 @@ async function runGuidedOnboardingSteps(
   if (menu.featured.length === 0 && menu.additional.length === 0) {
     await writeOutput(
       ports.stderr,
-      "No reviewed setup path is currently available. Use /provider for diagnostics.\n",
+      "No model connection is available. Start Ollama or LM Studio with a local model, then run recurs setup again.\n" +
+        "Use recurs provider detect to check local servers, or recurs provider list --all for hosted connection status.\n",
     );
     return { state: "skipped" };
   }

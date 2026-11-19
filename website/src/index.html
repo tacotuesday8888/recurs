@@ -23,10 +23,11 @@
         <h1 id="hero-title">Coding agents.<br>Your terminal.</h1>
         <p class="lede">Choose the models. Bound the team. Review every change.</p>
         <div class="install-action" id="install">
-          <div class="install-methods" role="group" aria-label="Installation method"><button data-install="npm" aria-pressed="true" type="button">npm</button><button data-install="bun" aria-pressed="false" type="button">Bun</button><button data-install="brew" aria-pressed="false" type="button">Homebrew</button></div>
-          <div class="install-command"><code id="install-command">npm install --global recurs@alpha</code><button id="copy-install" type="button" aria-label="Copy installation command">Copy</button></div>
-          <p class="fine" id="install-note">Node.js 22.22+ on macOS or Linux. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#install">Setup guide</a></p>
-          <span id="copy-status" class="sr-only" role="status"></span>
+          <div class="install-methods" role="group" aria-label="Installation method" hidden><button data-install="npm" aria-pressed="true" type="button">npm</button><button data-install="bun" aria-pressed="false" type="button">Bun</button><button data-install="brew" aria-pressed="false" type="button">Homebrew</button></div>
+          <div class="install-command"><code id="install-command">npm install --global recurs@alpha</code><button id="copy-install" class="copy-button" type="button" aria-label="Copy installation command" hidden>Copy</button></div>
+          <span id="copy-status" class="copy-status" role="status"></span>
+          <p class="fine"><span id="install-note">Node.js 22.22+ on macOS or Linux.</span> <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#install">Requirements</a></p>
+          <a class="first-session-link" href="#first-session">Start your first session</a>
         </div>
       </div>
     </section>
@@ -42,6 +43,44 @@
         <li><h3>Review before it lands</h3><p>Workers build in isolated Git worktrees. An independent reviewer checks their work before your session applies it.</p><kbd>Ctrl+T</kbd></li>
       </ul>
     </section>
+    <section class="section wrap first-session" id="first-session" aria-labelledby="first-session-title">
+      <div>
+        <h2 id="first-session-title">Your first session</h2>
+        <ol class="session-steps">
+          <li>Start an Ollama or LM Studio server on its default local port with a model loaded. For a custom port, use <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#provider-access">manual local setup</a>.</li>
+          <li>After <a href="#install">installing Recurs</a>, run <code>recurs</code> in your repository and choose <strong>Start new chat</strong>.</li>
+          <li>In setup, choose the detected local runtime and enter the model’s exact ID. Select <strong>Ask Always</strong>, then <strong>Start coding</strong>.</li>
+          <li>Paste a prompt into Recurs. Each starts in read-only Plan mode. Use <code>/plan exit</code> when you’re ready to make changes.</li>
+        </ol>
+      </div>
+      <div class="starter-prompts">
+        <h3>Pick a first task</h3>
+        <details name="starter-task" open>
+          <summary>Explore the repository</summary>
+          <div class="starter-content">
+            <code>/plan Trace one user-facing feature from its entry point to its implementation. Which files should I open first?</code>
+            <button class="copy-button" type="button" hidden>Copy prompt</button>
+            <span class="copy-status" role="status"></span>
+          </div>
+        </details>
+        <details name="starter-task">
+          <summary>Investigate a failing test</summary>
+          <div class="starter-content">
+            <code>/plan Ask me for the failing test output, then trace the failure through the code. What explains it, and how could we verify the cause?</code>
+            <button class="copy-button" type="button" hidden>Copy prompt</button>
+            <span class="copy-status" role="status"></span>
+          </div>
+        </details>
+        <details name="starter-task">
+          <summary>Review my changes</summary>
+          <div class="starter-content">
+            <code>/plan Review my uncommitted changes. Point out any likely regression with its file and line, and suggest a test that would catch it.</code>
+            <button class="copy-button" type="button" hidden>Copy prompt</button>
+            <span class="copy-status" role="status"></span>
+          </div>
+        </details>
+      </div>
+    </section>
     {{PRODUCT_COMPARISON}}
     <section class="section wrap performance" id="performance" aria-labelledby="performance-title">
       <div class="section-head">
@@ -55,10 +94,6 @@
       </dl>
       {{CLI_COMPARISON}}
       <p class="fine metrics-note">Deterministic local workloads on one macOS machine; not a model-quality benchmark. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/ACTIVE_SESSION_MEMORY.md">Method and raw measurements</a></p>
-    </section>
-    <section class="section wrap closing" aria-labelledby="closing-title">
-      <h2 id="closing-title">Try it on a repository you can review.</h2>
-      <div class="closing-aside"><p>Recurs is an early alpha, open source under Apache 2.0.</p><div class="closing-links"><a class="button" href="#install">Install</a><a class="button quiet" href="https://github.com/tacotuesday8888/recurs">View on GitHub</a></div></div>
     </section>
   </main>
   <footer class="site-footer wrap"><span>recurs · {{VERSION}}</span><nav aria-label="Project links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/FEATURE_STATUS.md">Capabilities</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/SECURITY.md">Security</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/LICENSE">License</a><button id="motion-toggle" type="button" aria-pressed="false" hidden>Animation on</button></nav></footer>

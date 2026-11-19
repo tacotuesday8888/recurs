@@ -101,6 +101,7 @@ const POLICY_FIELDS = [
   "revision",
   "reviewedAt",
   "expiresAt",
+  "previousReviews",
   "defaultDecision",
   "rules",
   "officialRuntimeRequired",
@@ -499,10 +500,7 @@ function validateRule(value: unknown): UsagePolicyRule {
   return rule as unknown as UsagePolicyRule;
 }
 
-function validatePolicy(value: unknown): ProviderUsagePolicy {
-  const policy = record(value, "Provider usage policy");
-  noUnknownFields(policy, POLICY_FIELDS, "Provider usage policy");
-  nonemptyString(policy["revision"], "Provider usage policy revision");
+function validateReviewPeriod(policy: UnknownRecord) {
   const reviewedAt = nonemptyString(
     policy["reviewedAt"],
     "Provider usage policy review date",
@@ -527,6 +525,25 @@ function validatePolicy(value: unknown): ProviderUsagePolicy {
   }
   if (expiresDate.getTime() <= reviewedTimestamp) {
     fail("Provider usage policy expiry must be after its review date");
+  }
+  return { start: reviewedTimestamp, end: expiresDate.getTime() };
+}
+
+function validatePolicy(value: unknown): ProviderUsagePolicy {
+  const policy = record(value, "Provider usage policy");
+  noUnknownFields(policy, POLICY_FIELDS, "Provider usage policy");
+  nonemptyString(policy["revision"], "Provider usage policy revision");
+  const latest = validateReviewPeriod(policy);
+  if (policy["previousReviews"] !== undefined) {
+    let nextStart = latest.start;
+    const prior = arrayValue(policy["previousReviews"], "Previous policy reviews");
+    for (const value of [...prior].reverse()) {
+      const review = record(value, "Previous policy review");
+      noUnknownFields(review, ["reviewedAt", "expiresAt"], "Previous policy review");
+      const period = validateReviewPeriod(review);
+      if (period.end > nextStart) fail("Policy review periods must be ordered and disjoint");
+      nextStart = period.start;
+    }
   }
   enumValue(
     policy["defaultDecision"],

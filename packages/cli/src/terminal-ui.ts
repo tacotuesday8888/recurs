@@ -47,6 +47,7 @@ import { Writable, type Readable } from "node:stream";
 import type { CommandResult } from "./commands/types.js";
 import { parseCommand } from "./commands/parser.js";
 import { loadTerminalAppearance, saveTerminalAppearance, isTerminalThemeName, parseTerminalAppearance, TERMINAL_COLOR_ROLES, type TerminalAppearance } from "./terminal-appearance.js";
+import { chatChoice, chatLabel, chatTime } from "./chat-history.js";
 import { TerminalChoicePicker } from "./terminal-choice-picker.js";
 import { TerminalThemePicker } from "./terminal-theme-picker.js";
 import { ExecutionInspector } from "./terminal-execution-inspector.js";
@@ -91,6 +92,7 @@ export interface LaunchViewModel {
 export interface LaunchActions {
   readonly manage?: (session: SessionListEntry) => void;
   readonly archived?: () => void;
+  readonly search?: () => void;
   readonly openSession: (sessionId: string) => void;
   readonly newProject: () => void;
   readonly quit: () => void;
@@ -101,19 +103,6 @@ export interface LaunchPresentation {
   readonly frame?: () => number;
   readonly rows?: () => number;
   readonly theme?: TerminalTheme;
-}
-
-/** A saved title, else the first prompt, so untitled chats stay distinguishable. */
-function chatLabel(session: SessionListEntry, currentSessionId: string | null, index: number): string {
-  return session.title ?? session.preview ?? (session.id === currentSessionId ? "Current chat" : `Recent chat ${index + 1}`);
-}
-
-/** Local date and time; the stored value stays UTC. */
-function chatTime(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso.slice(0, 16) : new Intl.DateTimeFormat(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  }).format(date);
 }
 
 export class LaunchComponent implements Component {
@@ -153,7 +142,7 @@ export class LaunchComponent implements Component {
       const label = selected === undefined ? "Start new chat" : chatLabel(selected, this.model.currentSessionId, this.#selectedIndex);
       const selection = theme?.accent(line(`> ${label}`)) ?? line(`> ${label}`);
       if (terminalRows === 1) return [selection];
-      const compact = [selection, line("↑↓ select · Enter open · q quit")];
+      const compact = [selection, line(this.actions.search ? "↑↓ select · / find · Enter open · q quit" : "↑↓ select · Enter open · q quit")];
       if (terminalRows >= 3) compact.unshift(theme?.strong(line(`RECURS / ${this.model.workspace}`)) ?? line(`RECURS / ${this.model.workspace}`));
       if (terminalRows >= 4) compact.splice(compact.length - 1, 0, theme?.muted(line(selected?.model ?? "Connect a model to start")) ?? line(selected?.model ?? "Connect a model to start"));
       while (compact.length < terminalRows) compact.splice(compact.length - 1, 0, "");
@@ -202,6 +191,13 @@ export class LaunchComponent implements Component {
     }
     const newProjectIndex = this.#sessions.length;
     if (this.#sessions.length === 0) rows.push(line("  No saved chats yet."));
+    const shortcuts = [
+      "Enter open",
+      ...(this.actions.search ? ["/ find"] : []),
+      ...(this.actions.archived ? ["A archived"] : []),
+      ...(this.actions.manage ? ["M manage"] : []),
+      "↑↓ select", "q quit",
+    ].join(" · ");
     rows.push(
       "",
       theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`)) ??
@@ -209,8 +205,7 @@ export class LaunchComponent implements Component {
       theme?.muted(line(this.model.currentSessionId === null ? "    Choose a model" : "    Use current model")) ??
         line(this.model.currentSessionId === null ? "    Choose a model" : "    Use current model"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.muted(line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit")) ??
-        line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit"),
+      theme?.muted(line(shortcuts)) ?? line(shortcuts),
     );
     while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
     return rows;
@@ -218,8 +213,13 @@ export class LaunchComponent implements Component {
 
   handleInput(data: string): void {
     const count = this.#sessions.length + 1;
-    if (data === "m") { const selected = this.#sessions[this.#selectedIndex]; if (selected) this.actions.manage?.(selected); return; }
-    if (data === "a") { this.actions.archived?.(); return; }
+    if (data === "m" || data === "M") {
+      const selected = this.#sessions[this.#selectedIndex];
+      if (selected) this.actions.manage?.(selected);
+      return;
+    }
+    if (data === "/") { this.actions.search?.(); return; }
+    if (data === "a" || data === "A") { this.actions.archived?.(); return; }
     if (matchesKey(data, Key.enter)) {
       const session = this.#sessions[this.#selectedIndex];
       if (session === undefined) this.actions.newProject();
@@ -1540,10 +1540,15 @@ export class RecursInteractiveShell {
       view = "company";
       mount(home, home);
     };
-    const showLaunch = (): void => {
+    const showLaunch = (refreshSessions = true): void => {
       view = "launch";
       mount(launch, launch);
-      void runtime.listSessions().then((sessions) => { launch.setSessions(sessions); tui.requestRender(); }).catch((error: unknown) => { this.#transcript.append(`\n${safeCliErrorMessage(error)}\n`); showChat(); });
+      if (!refreshSessions) return;
+      void runtime.listSessions().then((updated) => {
+        sessions = updated;
+        launch.setSessions(updated);
+        tui.requestRender();
+      }).catch((error: unknown) => { this.#transcript.append(`\n${safeCliErrorMessage(error)}\n`); showChat(); });
     };
     const showTasks = (): void => {
       if (view === "launch") return;
@@ -1623,22 +1628,40 @@ export class RecursInteractiveShell {
       rows: () => this.#terminal.rows,
     });
     const supportsLaunch = typeof runtime.listSessions === "function";
-    const sessions = supportsLaunch ? await runtime.listSessions() : [];
+    let sessions = supportsLaunch ? await runtime.listSessions() : [];
     const runtimeState = runtime.state;
     const currentSessionId = runtimeState.type === "session"
       ? runtimeState.session.id
       : null;
+    const openSession = (sessionId: string): void => {
+      if (sessionId === currentSessionId) showChat();
+      else finish({ type: "resume_session", sessionId });
+    };
+    const browseChats = (scope: "all" | "archived"): void => {
+      const archivedOnly = scope === "archived";
+      const entries = archivedOnly ? sessions.filter((entry) => entry.archived) : sessions;
+      const picker = new TerminalChoicePicker({
+        message: archivedOnly ? "Archived chats" : "Find a chat (including archived)",
+        emptyMessage: archivedOnly ? "No archived chats." : "No saved chats yet.",
+        startInSearch: !archivedOnly,
+        choices: entries.map((entry, index) => chatChoice(entry, currentSessionId, index)),
+        theme: this.#theme,
+        rows: () => this.#terminal.rows,
+        refresh: () => tui.requestRender(),
+        settle: (id) => {
+          if (id === null) showLaunch(false);
+          else openSession(id);
+        },
+      });
+      view = "selection";
+      mount(picker, picker);
+    };
     const launch = new LaunchComponent({
       workspace: path.basename(this.#cwd),
       currentSessionId,
       sessions,
     }, {
-      openSession: (sessionId) => {
-        if (sessionId === currentSessionId) {
-          showChat();
-        }
-        else finish({ type: "resume_session", sessionId });
-      },
+      openSession,
       manage: (entry) => {
         if (runtime.hasActiveRun || activeSubmissions > 0) { showChat(); return; }
         const choices = [{ id: "rename", label: "Rename chat" }, { id: entry.pinned ? "unpin" : "pin", label: entry.pinned ? "Unpin chat" : "Pin chat" }, { id: "archive", label: "Archive chat", detail: "Keep the conversation; reopen it from archived chats." }, { id: "copy", label: "Copy chat", detail: "Fork completed conversation context into a new chat." }];
@@ -1660,7 +1683,8 @@ export class RecursInteractiveShell {
         } });
         view = "selection"; mount(picker, picker);
       },
-      archived: () => { showChat(); chat.onSubmit?.("/chats archived"); },
+      search: () => browseChats("all"),
+      archived: () => browseChats("archived"),
       newProject: () => finish({ type: "new_project" }),
       quit: () => finish({ type: "quit" }),
       refresh: () => tui.requestRender(),
@@ -1732,6 +1756,7 @@ export class RecursInteractiveShell {
         if (settled) return;
         settled = true;
         selection.cancel = null;
+        selection.effort = false;
         showChat();
         resolve(id);
       };

@@ -129,6 +129,24 @@ describe("OnboardingCatalog", () => {
     ).toContain("The reviewed usage policy is expired or not yet current.");
   });
 
+  it("renews only verified routes and preserves the October review gap", () => {
+    const ids = (time: string) => catalogAt(new Date(time)).list().map((entry) => entry.id).sort();
+    expect(ids("2026-11-17T23:59:59.999Z")).toEqual([]);
+    const renewed = [
+      "openai-api", "openai-codex-chatgpt", "anthropic-api", "github-copilot-subscription",
+      "google-gemini-api", "xai-api", "alibaba-model-studio-api", "alibaba-coding-plan",
+      "zai-api", "ollama-local", "lm-studio-local",
+    ].sort();
+    expect(ids("2026-11-18T00:00:00.000Z")).toEqual(renewed);
+    expect(ids("2027-02-17T23:59:59.999Z")).toEqual(renewed);
+    expect(ids("2027-02-18T00:00:00.000Z")).toEqual([]);
+    const old = catalogAt(FRESH).list().find((entry) => entry.id === "openai-api")!;
+    const renewedApi = catalogAt(new Date("2026-11-19")).list().find((entry) => entry.id === old.id)!;
+    expect(old.policy.reviewedAt).toBe("2026-07-11");
+    expect(renewedApi.policy.reviewedAt).toBe("2026-11-18");
+    expect(renewedApi.policy.revision).toBe(old.policy.revision);
+  });
+
   it("blocks a broker-owned path whose usable endpoint is missing", () => {
     const nous = catalogAt(FRESH)
       .list({ includeBlocked: true })

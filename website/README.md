@@ -25,6 +25,9 @@ copied byte for byte from `docs/assets`.
 - npm, Bun, and Homebrew buttons sit directly above the installation command.
   Each choice updates the command and requirements. Copy reports its outcome;
   without clipboard access it selects the command and says how to copy it.
+- The installation section links to a first-session guide. Visitors can open
+  three read-only Plan mode prompts, choose one and copy it into Recurs.
+  The guide and all prompts are accessible with JavaScript disabled.
 - Inside Recurs shows a terminal poster. Play demo starts the captured workflow;
   pause, resume, replay, and media-error states have explicit controls. It does
   not autoplay or simulate live agent work. On narrow screens the capture keeps
@@ -43,3 +46,15 @@ Tests cover exported numbers, missing outcomes, safe evidence links, installatio
 choices, contrast of every text color on every surface, demo controls, motion
 interruption, reduced motion, keyboard behavior, and asset integrity. A local
 build does not deploy or publish the site.
+
+## GitHub Pages
+
+[Open the public site](https://tacotuesday8888.github.io/recurs/).
+
+The Pages workflow checks the site and publishes `website/.build` on pushes to
+`main`. To redeploy the current version, select **Actions → GitHub Pages → Run
+workflow** with `main` selected. The repository uses **Settings → Pages →
+Source → GitHub Actions**.
+
+The workflow sets `RECURS_PAGES_REPOSITORY` to the repository name so missing
+pages link back to the project. Local previews use the server root.

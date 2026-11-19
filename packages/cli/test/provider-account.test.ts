@@ -10,11 +10,13 @@ import {
   FileConnectionRegistry,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
+import { ProviderManifestRegistry } from "@recurs/providers";
 import {
   CodexAppServerCatalogError,
   type CodexSubscriptionCatalog,
 } from "@recurs/runtimes";
 import { afterEach, describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   disconnectAccount,
@@ -361,7 +363,8 @@ describe("provider and account projections", () => {
     expect(document.connections).toHaveLength(3);
   });
 
-  it("lists the truthful runnable/broker catalog without making blocked paths ready", () => {
+  it("lists runnable and blocked providers for the reviewed catalog date", () => {
+    useProviderFixtureClock("2026-08-07T12:00:00.000Z");
     const normal = listProviderSummaries(false);
     const all = listProviderSummaries(true);
     expect(normal.length).toBeLessThan(all.length);
@@ -395,6 +398,15 @@ describe("provider and account projections", () => {
         connectionOwner: "process_environment",
       });
     expect(all.some((entry) => entry.status === "blocked")).toBe(true);
+  });
+
+  it("omits expired hosted policies from the runnable CLI projection", () => {
+    const manifest = new ProviderManifestRegistry().get("openai-api");
+    if (!manifest) throw new Error("Expected the bundled OpenAI manifest");
+    useProviderFixtureClock(manifest.usagePolicy.expiresAt);
+    expect(listProviderSummaries().some((entry) => entry.id === manifest.id)).toBe(false);
+    expect(listProviderSummaries(true).find((entry) => entry.id === manifest.id))
+      .toMatchObject({ status: "blocked" });
   });
 
   it("returns useful account metadata while omitting account identifiers and endpoints", async () => {
@@ -435,6 +447,7 @@ describe("provider and account projections", () => {
   });
 
   it("verifies Codex on the exact account/model without authenticating", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const record = codexRecord();
     const runtime = new VerificationRuntime(
       inspection("private-owner@example.com"),
@@ -526,6 +539,7 @@ describe("provider and account projections", () => {
   });
 
   it("verifies an app-server connection against its exact account, model, and effort", async () => {
+    useProviderFixtureClock("2026-07-25T00:00:00.000Z");
     const record = codexAppServerRecord();
     const signal = new AbortController().signal;
     await expect(verifyCodexSubscriptionConnection(

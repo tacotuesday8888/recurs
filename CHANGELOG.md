@@ -2,7 +2,20 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## Unreleased
+## 0.1.0-alpha.12 (release candidate)
+
+- Reopen the most recently updated active parent chat with `recurs --continue`,
+  or a specific active or archived one with `recurs --resume <session-id>`.
+  Press `/` on the chat home screen to search across both lists by title,
+  first prompt, model or ID. Reopening preserves the original model and permissions.
+- Renew usage reviews for nine hosted providers and two local runtimes through
+  February 17, 2027 UTC. Eight other hosted routes remain closed pending
+  changes to tool-call handling, endpoint or billing support.
+  [Reviewed routes and evidence](docs/research/provider-review-2026-11.md)
+- Start a first session with a running local model using the
+  [interactive guide](https://tacotuesday8888.github.io/recurs/#first-session).
+  Three copyable read-only prompts cover exploring a repository, tracing a test
+  failure and reviewing changes.
 
 - Keep delegated child executions out of the chat list and `/chats`; they are
   inspected from their parent chat. Terminal prompts use sentence case.
@@ -65,9 +78,9 @@ Notable user-facing changes are recorded here when they ship.
   private data directory or at an explicit workspace path.
 - Translate the ACP SDK 1.4 compaction updates from delegated runtimes as
   vendor-internal, keeping the Recurs durable record unchanged.
-- Refresh reviewed runtime dependencies (ACP SDK 1.4.0, ws 8.21.3, yaml 2.9.1,
-  zod 4.6.2) and verify that every workspace package pins the same versions
-  as the published package.
+- Update the MCP client to 2.3.1, ACP SDK to 1.4.0, ws to 8.21.3, yaml to
+  2.9.1 and zod to 4.6.7. The package gate checks that workspace and published
+  runtime dependency pins agree.
 - Stop a cancellation test from timing out on slow CI runners.
 
 ## 0.1.0-alpha.11 - 2026-09-09

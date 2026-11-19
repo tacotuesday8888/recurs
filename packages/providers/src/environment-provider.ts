@@ -1,5 +1,6 @@
 import type { ConnectionBoundModelProvider } from "@recurs/contracts";
 
+import { providerReviewAt } from "./provider-policy-review.js";
 import { RemoteAnthropicMessagesProvider } from "./anthropic-messages.js";
 import { RemoteGeminiGenerateContentProvider } from "./gemini-generate-content.js";
 import { RemoteOpenAICompatibleProvider } from "./local-openai-compatible.js";
@@ -134,11 +135,15 @@ async function resolve(
       "Environment provider selection is invalid",
     );
   }
-  if (environmentByokManifest(providerId) === null) {
+  const manifest = environmentByokManifest(providerId);
+  if (manifest === null) {
     throw new EnvironmentProviderError(
       "unsupported",
       "Conditional providers require reviewed interactive setup",
     );
+  }
+  if (providerReviewAt(manifest.usagePolicy, new Date()) === undefined) {
+    throw new EnvironmentProviderError("unsupported", "The selected provider's usage policy requires a current review");
   }
   return await createEnvironmentProviderConfiguration({
     providerId,

@@ -101,6 +101,9 @@ for (const file of evidenceFiles) await cp(join(repository, "benchmarks", file),
 
 for (const [source, target] of [["TASK_FIT_PROTOCOL.md", "task-fit-protocol.md"], ["TASK_FIT_CORRECTION.md", "task-fit-correction.md"], ["queue-verifier-audit.json", "queue-verifier-audit.json"], ["workspace-v2-verifier-audit.json", "workspace-v2-verifier-audit.json"], ["TASK_FIT_RESULTS.md", "task-fit-results.md"], ["TASK_FIT_STARTUP_AMENDMENT.md", "task-fit-startup-amendment.md"]]) await cp(join(repository, "benchmarks", source), join(output, target));
 
-await writeFile(join(output, "404.html"), '<!doctype html><html lang="en"><meta charset="utf-8"><title>Page not found — Recurs</title><h1>Page not found</h1><a href="/">Back to Recurs</a></html>');
+const pagesRepository = process.env.RECURS_PAGES_REPOSITORY;
+const siteRoot = pagesRepository ? `/${encodeURIComponent(pagesRepository)}/` : "/";
+const notFound = await readFile(join(source, "404.html"), "utf8");
+await writeFile(join(output, "404.html"), notFound.replace("{{SITE_ROOT}}", siteRoot));
 await writeFile(join(output, ".nojekyll"), "");
 console.log(`Built ${output}`);

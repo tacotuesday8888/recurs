@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { useProviderFixtureClock } from "../../../tests/support/provider-fixture-clock.js";
 
 import {
   providerDiscoveryOverview,
@@ -7,6 +8,7 @@ import {
 
 describe("provider discovery presentation", () => {
   it("keeps local and connected discovery useful when the public catalog is offline", async () => {
+    useProviderFixtureClock("2026-08-07T12:00:00.000Z");
     const overview = await providerDiscoveryOverview(
       "/tmp/unused",
       "kimi",
